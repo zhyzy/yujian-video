@@ -1,0 +1,65 @@
+@import url('//at.alicdn.com/t/c/font_5195241_tyi80svfqy.css');
+
+.app-icon {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  width: 1em;
+  height: 1em;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.app-icon__font,
+.app-icon__fallback {
+  grid-area: 1 / 1;
+  display: inline-grid;
+  place-items: center;
+  width: 1em;
+  height: 1em;
+  line-height: 1;
+}
+
+.app-icon__font {
+  color: inherit;
+  font-size: 1em;
+  z-index: 1;
+}
+
+.app-icon__font::before {
+  line-height: 1;
+}
+
+.app-icon__fallback {
+  color: inherit;
+  font-size: 1em;
+  opacity: 0.18;
+}
+
+.is-collapsed .sidebar .nav-item .nav-icon,
+.is-collapsed .sidebar .nav-group .nav-icon {
+  width: 24px;
+  height: 24px;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+}
+.is-collapsed .sidebar .nav-item .nav-icon .app-icon,
+.is-collapsed .sidebar .nav-group .nav-icon .app-icon {
+  width: 18px !important;
+  height: 18px !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+}
+.is-collapsed .sidebar .nav-item .nav-icon .app-icon__font,
+.is-collapsed .sidebar .nav-group .nav-icon .app-icon__font {
+  font-size: 18px !important;
+  line-height: 1 !important;
+  display: none !important;
+}
+.is-collapsed .sidebar .nav-item .nav-icon .app-icon__fallback,
+.is-collapsed .sidebar .nav-group .nav-icon .app-icon__fallback {
+  font-size: 18px !important;
+  display: flex !important;
+}
