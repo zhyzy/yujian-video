@@ -1,99 +1,155 @@
-# 遇见自媒体运营系统
+<div align="center">
 
-遇见自媒体运营系统是一套面向总部运营与城市账号协作的管理后台，覆盖素材录入、发布排期、城市分发、账号管理、数据总览、AI 日报和可视化页面布局配置。
+# 🏢 遇见自媒体运营系统
 
-当前版本：`v1.0.0`
+> 面向总部运营与城市账号协作的一站式管理后台
 
-## 功能概览
+![Version](https://img.shields.io/badge/version-v1.0.0-blue?style=flat-square)
+![Node](https://img.shields.io/badge/Node.js-%3E%3D16-green?style=flat-square)
+![Vue](https://img.shields.io/badge/Vue-3.x-42b883?style=flat-square&logo=vuedotjs)
+![Status](https://img.shields.io/badge/status-已上线-success?style=flat-square)
 
-- 管理端工作台：今日发布、待发布、月度完成度、超期任务、城市发布分布等运营看板。
-- 素材管理：素材录入、素材列表、类型管理、文件上传与预览。
-- 发布管理：发布日历、发布计划、发布台账。
-- 城市管理：城市看板、城市列表、城市账号与任务分发。
-- 账号管理：总部账号、城市账号、其他账号、系统登录账号。
-- 数据分析：数据总览、平台趋势、城市数据、账号数据。
-- AI 日报：日报生成、手动保存、报告列表。
-- 城市端：城市工作台、我的任务、发布填报、数据录入、通知中心。
-- 页面布局：可拖拽页面组件、显示隐藏、调整宽高、字段绑定并保存到后端。
-- 系统设置：品牌、存储桶、页面文案、展示字段、全局偏好配置。
-- 登录安全：滑块验证、登录失败限流、可配置登录有效期。
+---
 
-## 技术栈
+</div>
+
+## 📋 项目简介
+
+**遇见自媒体运营系统** 是一套面向总部运营与城市账号协作的管理后台。总部可以集中管理素材、制定排期、分发任务给各个城市账号；城市账号可以在独立的工作台中查看待办、填报发布、录入数据。
+
+- 🎯 **目标**：让多账号多平台的短视频运营变得可追踪、可协同、可衡量
+- 🗂️ **覆盖**：素材录入 · 发布排期 · 城市分发 · 账号管理 · 数据总览 · AI 日报 · 页面布局配置
+- 🏢 **场景**：总部运营 + N 个城市账号，城市账号只能看到自己的数据和任务
+
+---
+
+## ✨ 功能一览
+
+### 🏠 管理端（总部）
+
+| 模块 | 功能说明 |
+|---|---|
+| **工作台** | 今日发布、待发布、月度完成度、超期任务、城市发布分布 |
+| **素材管理** | 素材录入、素材列表、类型管理、文件上传与预览 |
+| **发布管理** | 发布日历、发布计划矩阵、发布台账（按日核对每个账号的发布情况） |
+| **城市管理** | 城市看板、城市列表、城市账号与任务下发 |
+| **账号管理** | 总部账号、城市账号、其他账号、系统登录账号 |
+| **数据分析** | 数据总览、平台趋势、城市对比、账号明细 |
+| **AI 日报** | 自动生成每日运营日报、报告列表与手动保存 |
+| **系统设置** | 品牌、存储桶、页面文案、展示字段、全局偏好配置 |
+| **页面布局** | 拖拽式组件、显示隐藏、调整宽高、字段绑定，配置保存到后端 |
+| **登录安全** | 滑块验证、登录失败限流、可配置登录有效期 |
+
+### 🏙️ 城市端
+
+| 模块 | 功能说明 |
+|---|---|
+| **城市工作台** | 本城市今日任务概览、进度、通知 |
+| **我的任务** | 待办任务列表、素材下载、去发布、复制链接 |
+| **发布填报** | 按日期填报发布链接、发布时间、异常原因 |
+| **数据录入** | 播放量、点赞、评论、成交等数据的录入与汇总 |
+| **通知中心** | 下发任务提醒、系统通知、已读标记 |
+| **我的账号** | 本城市账号信息查看与修改 |
+| **发布日历 / 发布台账** | 城市视角的排期与台账 |
+
+---
+
+## 🛠️ 技术栈
 
 ### 前端
 
-- Vue 3
-- Vue Router
-- Pinia
-- Element Plus
-- ECharts
-- Vite
+```text
+Vue 3            🟢 渐进式 JS 框架
+Vue Router       🟢 前端路由
+Pinia            🟢 状态管理
+Element Plus     🟢 UI 组件库
+ECharts          🟢 图表可视化
+Vite             🟢 构建工具
+```
 
 ### 后端
 
-- Node.js
-- Express
-- SQLite / better-sqlite3
-- JWT
-- Tencent COS SDK
-- Winston 日志
+```text
+Node.js          🟢 服务端运行时
+Express          🟢 Web 框架
+SQLite           🟢 本地关系型数据库（better-sqlite3）
+JWT              🟢 鉴权
+Tencent COS SDK  🟢 对象存储（素材文件、视频上传）
+Winston          🟢 日志模块
+```
 
-## 目录结构
+---
+
+## 📂 项目结构
 
 ```text
-.
-├── backend/                 # 后端 API 服务
-├── frontend/                # 前端管理后台
-├── docs/                    # 项目文档
-├── vue-animated-login/      # 本地登录页组件依赖
-├── CHANGELOG.md             # 更新日志
-├── VERSION                  # 当前版本号
-├── docker-compose.yml       # Docker 编排配置
-├── deploy.sh                # 1Panel 部署脚本
+yujian-video/
+├── backend/                 ── 后端 API 服务
+│   ├── server.js            ── 入口
+│   ├── db/                  ── 数据库迁移 & 初始化
+│   ├── routes/              ── 路由模块
+│   ├── middleware/          ── 中间件（鉴权、日志等）
+│   └── data.db              ── SQLite 数据文件（首次启动自动生成）
+├── frontend/                ── 前端管理后台
+│   ├── src/
+│   │   ├── views/           ── 页面组件（管理端 + 城市端）
+│   │   ├── api/             ── API 封装
+│   │   ├── layout-builder/  ── 可拖拽布局引擎
+│   │   └── router/          ── 路由
+│   └── vite.config.js       ── Vite 配置
+├── docs/                    ── 项目文档与规划
+├── vue-animated-login/      ── 本地登录页组件依赖
+├── CHANGELOG.md             ── 更新日志
+├── VERSION                  ── 当前版本号
+├── docker-compose.yml       ── Docker 编排
+├── deploy.sh                ── 1Panel 部署脚本
 └── README.md
 ```
 
-## 本地启动
+---
 
-### 1. 安装依赖
+## 🚀 本地快速启动
+
+### 第一步：安装依赖
 
 ```bash
+# 后端
 cd backend
 npm install
 
+# 前端
 cd ../frontend
 npm install
 ```
 
-### 2. 配置后端环境变量
-
-复制后端配置模板：
+### 第二步：配置后端环境变量
 
 ```bash
 cd backend
 cp .env.example .env
 ```
 
-至少修改这些配置：
+**必改的几项**（`.env`）：
 
-```env
+```ini
 NODE_ENV=development
 PORT=3001
 DB_PATH=./data.db
 
-JWT_SECRET=change-this-to-a-long-random-secret
+JWT_SECRET=请换成一个很长的随机字符串
 JWT_EXPIRES_IN=12h
+
 LOGIN_MAX_ATTEMPTS=5
 LOGIN_WINDOW_MINUTES=15
 LOGIN_LOCK_MINUTES=15
 
 ADMIN_USERNAME=admin
-ADMIN_PASSWORD=change-this-before-first-start
+ADMIN_PASSWORD=请改成强密码
 ```
 
-如果需要 COS 上传，再配置：
+**如果需要使用腾讯 COS 上传素材**，再补充：
 
-```env
+```ini
 COS_SECRET_ID=
 COS_SECRET_KEY=
 COS_BUCKET=
@@ -102,33 +158,31 @@ COS_DOMAIN=
 COS_CDN_DOMAIN=
 ```
 
-### 3. 启动后端
+### 第三步：启动后端
 
 ```bash
 cd backend
 npm run dev
+# 服务启动在 http://localhost:3001
 ```
 
-默认后端地址：
-
-```text
-http://localhost:3001
-```
-
-### 4. 启动前端
+### 第四步：启动前端
 
 ```bash
 cd frontend
 npm run dev
+# 前端启动在 http://localhost:3000
 ```
 
-默认前端地址：
+### 首次登录
 
-```text
-http://localhost:3000
-```
+打开浏览器访问 `http://localhost:3000`，用你在 `.env` 中配置的 `ADMIN_USERNAME / ADMIN_PASSWORD` 登录。
 
-## 构建与测试
+登录后可以在 **系统设置 → 账号管理** 中创建城市账号（角色选择 `city`，并绑定城市）。
+
+---
+
+## 🧪 构建与测试
 
 ### 前端构建
 
@@ -144,16 +198,15 @@ cd backend
 npm test
 ```
 
-如果后端测试提示 `better-sqlite3` 与 Node 版本不一致，请在服务器或当前机器执行：
+> 如果后端测试报 `better-sqlite3` 与当前 Node 版本不一致，执行：
+> ```bash
+> cd backend
+> npm rebuild better-sqlite3
+> ```
 
-```bash
-cd backend
-npm rebuild better-sqlite3
-```
+---
 
-## 部署说明
-
-项目包含 `docker-compose.yml` 和 `deploy.sh` 两种部署参考。
+## 📦 部署
 
 ### Docker Compose
 
@@ -161,33 +214,37 @@ npm rebuild better-sqlite3
 docker compose up -d --build
 ```
 
-生产环境请务必挂载持久化目录，并配置：
+生产环境请记得挂载持久化目录，并在 `.env` 中设置：
 
 - `DB_PATH`
 - `JWT_SECRET`
 - `ADMIN_PASSWORD`
-- COS 存储参数
+- COS 相关参数
 
 ### 1Panel 部署
 
-项目内置脚本：
+项目内置脚本 `deploy.sh`，在仓库根目录执行：
 
 ```bash
 ./deploy.sh all
 ```
 
-脚本中的服务器地址和目录需要按实际服务器修改。
+脚本中的服务器地址和目录需要按实际服务器情况修改。
 
-## 上线前检查
+---
 
-- 确认 `backend/.env` 已配置强随机 `JWT_SECRET`。
-- 确认初始管理员密码已修改。
-- 确认数据库文件和上传目录有备份策略。
-- 确认 COS 权限范围和上传路径安全。
-- 不要把 `.env`、`.jwt_secret`、数据库文件、日志、上传文件提交到 GitHub。
-- 服务器上不要直接复制本机 `node_modules`，应重新安装依赖。
+## 🔒 上线前检查清单
 
-## 版本管理
+- [ ] `backend/.env` 的 `JWT_SECRET` 已改成强随机字符串
+- [ ] 初始管理员密码已修改
+- [ ] 数据库文件和上传目录有定时备份策略
+- [ ] COS 权限范围和上传路径安全
+- [ ] **不要**把 `.env`、`.jwt_secret`、数据库文件、日志、上传文件提交到 Git
+- [ ] 服务器上**不要**直接复制本机的 `node_modules`，需要重新 `npm install`
+
+---
+
+## 📌 版本管理
 
 当前版本记录在：
 
@@ -196,35 +253,40 @@ docker compose up -d --build
 - `frontend/package.json`
 - `backend/package.json`
 
-版本号规则见：[docs/version-management.md](docs/version-management.md)
+### 简单版本规则
 
-简单规则：
+- 修复问题 → `1.0.0` → `1.0.1`
+- 新增功能 → `1.0.0` → `1.1.0`
+- 大版本改造 → `1.0.0` → `2.0.0`
 
-- 修复问题：`1.0.0` -> `1.0.1`
-- 新增功能：`1.0.0` -> `1.1.0`
-- 大版本改造：`1.0.0` -> `2.0.0`
+详细规则见 [docs/version-management.md](docs/version-management.md)
 
-## GitHub 提交流程
+---
 
-第一次提交：
+## 📄 许可证
 
-```bash
-git init
-git add .
-git commit -m "chore: initial release v1.0.0"
-git branch -M main
-git remote add origin <你的 GitHub 仓库地址>
-git push -u origin main
-```
+Copyright © 2026 遇见自媒体运营团队 · All Rights Reserved.
 
-后续更新：
+本项目为**内部业务系统**，**默认不开放任何外部许可**。
 
-```bash
-git add .
-git commit -m "feat: 描述本次功能"
-git push
-```
+**你可以：**
 
-## 许可证
+- 在本组织内部使用、修改、运行本项目
 
-当前项目为内部业务系统，默认不开放许可。需要开源或商用分发前，请先补充许可证文件。
+**你不可以：**
+
+- 将本项目的全部或部分代码用于对外公开、分发、再许可
+- 将本项目用于商业销售或二次授权
+- 移除或修改本版权声明
+
+如需开源发布或商业分发，请先联系运营团队补充正式的 LICENSE 文件并获得书面授权。
+
+---
+
+<div align="center">
+
+**Made with ❤️ by 遇见自媒体运营团队**
+
+*当前版本 v1.0.0 · 2026*
+
+</div>
