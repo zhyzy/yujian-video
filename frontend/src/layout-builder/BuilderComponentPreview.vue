@@ -8,7 +8,68 @@
       <b v-if="config.required">必填</b>
     </header>
 
-    <div v-if="key === 'control-checkbox'" class="field-line">
+    <div v-if="isDataOverviewHero" class="data-hero-preview">
+      <div>
+        <span>数据中心 · 实时概览</span>
+        <strong>数据总览</strong>
+        <p>2026/6/15 - 2026/6/21 · 基于 186 条上报数据综合分析</p>
+      </div>
+      <div class="preview-range">
+        <i>7 天</i><i>30 天</i><i>90 天</i><i>本年</i>
+      </div>
+    </div>
+
+    <div v-else-if="isDataOverviewSummary" class="data-kpi-preview">
+      <div class="preview-kpi hero">
+        <span>总播放量</span>
+        <strong>53.9 万</strong>
+        <em></em>
+      </div>
+      <div v-for="item in dataKpis" :key="item.label" class="preview-kpi">
+        <i :class="item.class"></i>
+        <span>{{ item.label }}</span>
+        <strong>{{ item.value }}</strong>
+      </div>
+    </div>
+
+    <div v-else-if="isDataOverviewCharts" class="preview-chart-grid">
+      <div class="preview-chart-card">
+        <strong>播放趋势分析</strong>
+        <span>按日聚合播放量走势</span>
+        <div class="preview-line-chart">
+          <i v-for="n in 8" :key="n"></i>
+        </div>
+      </div>
+      <div class="preview-chart-card donut">
+        <strong>平台占比</strong>
+        <span>按平台统计播放量份额</span>
+        <div class="preview-donut"><b>53.9 万</b><small>总播放</small></div>
+      </div>
+    </div>
+
+    <div v-else-if="isDataOverviewAccounts" class="preview-account-grid">
+      <div v-for="item in previewAccounts" :key="item.name" class="preview-account-card">
+        <strong>{{ item.name }}</strong>
+        <span>{{ item.platform }}</span>
+        <div>
+          <i>播放<br>{{ item.views }}</i>
+          <i>点赞<br>{{ item.likes }}</i>
+          <i>评论<br>{{ item.comments }}</i>
+          <i>成交<br>0</i>
+        </div>
+      </div>
+    </div>
+
+    <div v-else-if="isDataOverviewDetail" class="preview-data-table">
+      <div class="preview-table-head">
+        <span>日期</span><span>视频 / 账号</span><span>播放</span><span>点赞</span><span>评论</span>
+      </div>
+      <div v-for="row in previewRows" :key="row.title" class="preview-table-row">
+        <span>{{ row.date }}</span><strong>{{ row.title }}</strong><span>{{ row.views }}</span><span>{{ row.likes }}</span><span>{{ row.comments }}</span>
+      </div>
+    </div>
+
+    <div v-else-if="key === 'control-checkbox'" class="field-line">
       <el-checkbox v-model="checkboxValue">{{ config.label || module.title }}</el-checkbox>
     </div>
 
@@ -137,6 +198,26 @@ const isLayout = computed(() => key.value.startsWith('layout-'))
 const placeholder = computed(() => config.value.placeholder || `请输入${props.module.title}`)
 const options = computed(() => String(config.value.options || '选项一\n选项二\n选项三').split(/\n|,/).map((item) => item.trim()).filter(Boolean))
 const description = computed(() => isLayout.value ? '页面结构与内容容器' : '可配置表单控件')
+const isDataOverview = computed(() => props.pageKey === 'dataOverview')
+const isDataOverviewHero = computed(() => isDataOverview.value && key.value === 'page-head')
+const isDataOverviewSummary = computed(() => isDataOverview.value && key.value === 'summary-row')
+const isDataOverviewCharts = computed(() => isDataOverview.value && key.value === 'chart-panel')
+const isDataOverviewAccounts = computed(() => isDataOverview.value && key.value === 'account-overview-panel')
+const isDataOverviewDetail = computed(() => isDataOverview.value && key.value === 'data-detail-panel')
+const dataKpis = [
+  { label: '总点赞', value: '4,420', class: 'pink' },
+  { label: '总评论', value: '620', class: 'amber' },
+  { label: '成交单数', value: '0', class: 'green' },
+  { label: '视频总数', value: '186 条', class: 'cyan' }
+]
+const previewAccounts = [
+  { name: '遇见约到家', platform: '快手', views: '31.3 万', likes: '3,640', comments: '520' },
+  { name: '遇见约到家', platform: '视频号', views: '22.1 万', likes: '620', comments: '100' }
+]
+const previewRows = [
+  { date: '06-21', title: '兰州 · 小熊的安妮', views: '9.4 万', likes: '1,092', comments: '156' },
+  { date: '06-20', title: '太原 · 遇见向阳而生', views: '6.6 万', likes: '186', comments: '30' }
+]
 
 const initialValue = (fallback) => getLayoutBindingValue(props.pageKey, fieldName.value, fallback)
 const checkboxValue = ref(Boolean(initialValue(config.value.defaultValue ?? true)))
@@ -330,5 +411,212 @@ header b {
 .table-preview th {
   background: #f8fafc;
   color: #64748b;
+}
+.data-hero-preview {
+  min-height: 150px;
+  padding: 22px;
+  border-radius: 18px;
+  background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
+  color: #fff;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+.data-hero-preview span,
+.data-hero-preview p {
+  color: rgba(255, 255, 255, 0.78);
+}
+.data-hero-preview strong {
+  display: block;
+  margin-top: 8px;
+  font-size: 28px;
+}
+.preview-range {
+  display: flex;
+  gap: 6px;
+  padding: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.12);
+}
+.preview-range i {
+  padding: 7px 10px;
+  border-radius: 9px;
+  color: #fff;
+  font-size: 12px;
+  font-style: normal;
+}
+.preview-range i:first-child {
+  background: #fff;
+  color: #4f46e5;
+}
+.data-kpi-preview {
+  display: grid;
+  grid-template-columns: 1.4fr repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+.preview-kpi {
+  min-height: 120px;
+  padding: 16px;
+  border: 1px solid #edf0f6;
+  border-radius: 16px;
+  background: #fff;
+}
+.preview-kpi.hero {
+  background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
+  color: #fff;
+}
+.preview-kpi span,
+.preview-chart-card span {
+  display: block;
+  color: #8a91a4;
+  font-size: 12px;
+}
+.preview-kpi.hero span {
+  color: rgba(255, 255, 255, 0.82);
+}
+.preview-kpi strong {
+  display: block;
+  margin-top: 14px;
+  color: #0f172a;
+  font-size: 26px;
+}
+.preview-kpi.hero strong {
+  color: #fff;
+}
+.preview-kpi i {
+  display: block;
+  width: 30px;
+  height: 30px;
+  margin-bottom: 12px;
+  border-radius: 10px;
+}
+.preview-kpi i.pink { background: #ec4899; }
+.preview-kpi i.amber { background: #f59e0b; }
+.preview-kpi i.green { background: #10b981; }
+.preview-kpi i.cyan { background: #06b6d4; }
+.preview-kpi em {
+  display: block;
+  height: 3px;
+  margin-top: 18px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.8);
+}
+.preview-chart-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr);
+  gap: 12px;
+}
+.preview-chart-card,
+.preview-account-card,
+.preview-data-table {
+  padding: 16px;
+  border: 1px solid #edf0f6;
+  border-radius: 16px;
+  background: #fff;
+}
+.preview-chart-card strong,
+.preview-account-card strong {
+  display: block;
+  margin-bottom: 5px;
+  color: #0f172a;
+}
+.preview-line-chart {
+  height: 150px;
+  margin-top: 18px;
+  border-bottom: 1px solid #e5e7eb;
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+}
+.preview-line-chart i {
+  flex: 1;
+  border-radius: 999px 999px 0 0;
+  background: linear-gradient(180deg, rgba(99, 102, 241, 0.45), rgba(99, 102, 241, 0.05));
+}
+.preview-line-chart i:nth-child(1) { height: 28%; }
+.preview-line-chart i:nth-child(2) { height: 44%; }
+.preview-line-chart i:nth-child(3) { height: 62%; }
+.preview-line-chart i:nth-child(4) { height: 74%; }
+.preview-line-chart i:nth-child(5) { height: 66%; }
+.preview-line-chart i:nth-child(6) { height: 83%; }
+.preview-line-chart i:nth-child(7) { height: 58%; }
+.preview-line-chart i:nth-child(8) { height: 36%; }
+.preview-donut {
+  width: 150px;
+  height: 150px;
+  margin: 22px auto 0;
+  border: 22px solid #f1f5f9;
+  border-top-color: #10b981;
+  border-right-color: #f97316;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  text-align: center;
+}
+.preview-donut b,
+.preview-donut small {
+  grid-area: 1 / 1;
+}
+.preview-donut b {
+  transform: translateY(-8px);
+  color: #0f172a;
+  font-size: 18px;
+}
+.preview-donut small {
+  transform: translateY(16px);
+  color: #8a91a4;
+}
+.preview-account-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.preview-account-card span {
+  color: #8a91a4;
+  font-size: 12px;
+}
+.preview-account-card div {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 14px;
+}
+.preview-account-card i {
+  padding: 8px;
+  border-radius: 10px;
+  background: #f8fafc;
+  color: #0f172a;
+  font-size: 12px;
+  font-style: normal;
+  text-align: center;
+}
+.preview-data-table {
+  overflow: hidden;
+}
+.preview-table-head,
+.preview-table-row {
+  display: grid;
+  grid-template-columns: 90px minmax(0, 1fr) 80px 80px 80px;
+  gap: 10px;
+  align-items: center;
+}
+.preview-table-head {
+  padding: 12px;
+  border-radius: 12px 12px 0 0;
+  background: #f8fafc;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 800;
+}
+.preview-table-row {
+  padding: 14px 12px;
+  border-top: 1px solid #eef0f6;
+  color: #334155;
+  font-size: 13px;
+}
+.preview-table-row strong {
+  color: #0f172a;
 }
 </style>

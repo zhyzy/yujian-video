@@ -142,7 +142,7 @@
     </div>
     </template>
 
-    <template #rank-panel>
+    <template #account-overview-panel>
     <!-- 账号维度统计 -->
     <section class="panel account-stats-panel">
       <header class="panel-head">
@@ -206,7 +206,9 @@
         </div>
       </div>
     </section>
+    </template>
 
+    <template #data-detail-panel>
     <!-- Data detail table -->
     <section class="panel">
       <header class="panel-head">
@@ -869,9 +871,10 @@ const canSubmit = computed(() => {
   }
 })
 
-const switchRange = (r) => {
+const switchRange = async (r) => {
+  if (range.value === r) return
   range.value = r
-  nextTick(() => { renderCharts() })
+  await loadData()
 }
 
 const refreshData = () => { loadData() }

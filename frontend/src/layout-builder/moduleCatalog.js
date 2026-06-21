@@ -88,8 +88,9 @@ export const layoutModuleCatalog = {
   dataOverview: [
     { key: 'page-head', title: '页面头部', span: 12, visible: true },
     { key: 'summary-row', title: '数据指标', span: 12, visible: true },
-    { key: 'chart-panel', title: '趋势图表', span: 8, visible: true },
-    { key: 'rank-panel', title: '排行与明细', span: 4, visible: true }
+    { key: 'chart-panel', title: '趋势图表', span: 7, visible: true },
+    { key: 'account-overview-panel', title: '账号数据概览', span: 5, visible: true },
+    { key: 'data-detail-panel', title: '数据明细', span: 12, visible: true }
   ],
   aiReports: [
     { key: 'page-head', title: '页面头部', span: 12, visible: true },
@@ -153,10 +154,19 @@ export const buildDefaultLayouts = () => Object.fromEntries(
   ])
 )
 
+const deprecatedModuleKeys = {
+  dataOverview: ['rank-panel']
+}
+
 export const normalizeLayout = (pageKey, savedLayout = {}) => {
   const defaults = buildDefaultLayouts()[pageKey] || { pageKey, columns: 12, modules: [] }
-  const savedModules = Array.isArray(savedLayout.modules) ? savedLayout.modules : []
-  const removedKeys = Array.isArray(savedLayout.removedKeys) ? savedLayout.removedKeys : []
+  const deprecatedKeys = new Set(deprecatedModuleKeys[pageKey] || [])
+  const savedModules = Array.isArray(savedLayout.modules)
+    ? savedLayout.modules.filter((module) => !deprecatedKeys.has(module.key))
+    : []
+  const removedKeys = Array.isArray(savedLayout.removedKeys)
+    ? savedLayout.removedKeys.filter((key) => !deprecatedKeys.has(key))
+    : []
   const removedSet = new Set(removedKeys)
   const savedMap = new Map(savedModules.map((module) => [module.key, module]))
   const merged = defaults.modules
