@@ -1,135 +1,93 @@
 <div align="center">
 
-# 🏢 遇见自媒体运营系统
+# 遇见自媒体运营系统
 
-> 面向总部运营与城市账号协作的一站式管理后台
+面向总部运营与城市账号协作的一站式自媒体运营管理后台。
 
-![Version](https://img.shields.io/badge/version-v1.0.0-blue?style=flat-square)
-![Node](https://img.shields.io/badge/Node.js-%3E%3D16-green?style=flat-square)
-![Vue](https://img.shields.io/badge/Vue-3.x-42b883?style=flat-square&logo=vuedotjs)
-![Status](https://img.shields.io/badge/status-已上线-success?style=flat-square)
-
----
+![Version](https://img.shields.io/badge/version-v1.0.0-4f46e5?style=for-the-badge)
+![Vue](https://img.shields.io/badge/Vue-3-42b883?style=for-the-badge&logo=vuedotjs)
+![Node](https://img.shields.io/badge/Node.js-20-339933?style=for-the-badge&logo=nodedotjs)
+![License](https://img.shields.io/badge/license-Proprietary-111827?style=for-the-badge)
 
 </div>
 
-## 📋 项目简介
+## 项目定位
 
-**遇见自媒体运营系统** 是一套面向总部运营与城市账号协作的管理后台。总部可以集中管理素材、制定排期、分发任务给各个城市账号；城市账号可以在独立的工作台中查看待办、填报发布、录入数据。
+遇见自媒体运营系统用于管理总部与城市端之间的短视频运营协作流程。系统覆盖素材录入、发布排期、城市分发、账号管理、数据追踪、AI 日报和可视化页面布局配置，让多账号、多城市、多平台的运营工作可以统一管理、持续追踪和沉淀复盘。
 
-- 🎯 **目标**：让多账号多平台的短视频运营变得可追踪、可协同、可衡量
-- 🗂️ **覆盖**：素材录入 · 发布排期 · 城市分发 · 账号管理 · 数据总览 · AI 日报 · 页面布局配置
-- 🏢 **场景**：总部运营 + N 个城市账号，城市账号只能看到自己的数据和任务
+适用场景：
 
----
+- 总部统一规划内容、排期和发布任务。
+- 城市账号查看自己的任务并填报发布结果。
+- 运营人员追踪播放、点赞、评论、成交和金额等数据。
+- 管理员通过页面布局中心调整各页面模块展示。
 
-## ✨ 功能一览
+## 核心能力
 
-### 🏠 管理端（总部）
+| 能力 | 说明 |
+| --- | --- |
+| 管理端工作台 | 展示发布进度、月度完成度、超期任务、城市分布、快捷入口等运营概览。 |
+| 素材管理 | 支持素材录入、素材列表、类型维护、文件上传和预览。 |
+| 发布管理 | 支持发布日历、发布排期、发布台账和城市任务下发。 |
+| 城市端协作 | 城市账号可查看任务、提交发布结果、录入数据、查看通知。 |
+| 账号管理 | 维护总部账号、城市账号、其他账号和系统登录账号。 |
+| 数据总览 | 汇总播放量、点赞、评论、成交、金额、平台占比和账号明细。 |
+| AI 日报 | 基于运营数据生成日报，并支持手动保存报告。 |
+| 页面布局 | 支持组件拖拽、显示隐藏、宽高调整、字段绑定和后端持久化。 |
+| 系统设置 | 支持品牌、存储、页面文案、展示字段和全局偏好设置。 |
+| 登录安全 | 支持滑块验证、登录失败限流和可配置登录有效期。 |
 
-| 模块 | 功能说明 |
-|---|---|
-| **工作台** | 今日发布、待发布、月度完成度、超期任务、城市发布分布 |
-| **素材管理** | 素材录入、素材列表、类型管理、文件上传与预览 |
-| **发布管理** | 发布日历、发布计划矩阵、发布台账（按日核对每个账号的发布情况） |
-| **城市管理** | 城市看板、城市列表、城市账号与任务下发 |
-| **账号管理** | 总部账号、城市账号、其他账号、系统登录账号 |
-| **数据分析** | 数据总览、平台趋势、城市对比、账号明细 |
-| **AI 日报** | 自动生成每日运营日报、报告列表与手动保存 |
-| **系统设置** | 品牌、存储桶、页面文案、展示字段、全局偏好配置 |
-| **页面布局** | 拖拽式组件、显示隐藏、调整宽高、字段绑定，配置保存到后端 |
-| **登录安全** | 滑块验证、登录失败限流、可配置登录有效期 |
+## 技术栈
 
-### 🏙️ 城市端
+| 层级 | 技术 |
+| --- | --- |
+| 前端 | Vue 3、Vue Router、Pinia、Element Plus、ECharts、Vite |
+| 后端 | Node.js、Express、SQLite、better-sqlite3、JWT |
+| 存储 | 本地 SQLite、腾讯云 COS |
+| 工程化 | Docker、Docker Compose、1Panel 部署脚本 |
 
-| 模块 | 功能说明 |
-|---|---|
-| **城市工作台** | 本城市今日任务概览、进度、通知 |
-| **我的任务** | 待办任务列表、素材下载、去发布、复制链接 |
-| **发布填报** | 按日期填报发布链接、发布时间、异常原因 |
-| **数据录入** | 播放量、点赞、评论、成交等数据的录入与汇总 |
-| **通知中心** | 下发任务提醒、系统通知、已读标记 |
-| **我的账号** | 本城市账号信息查看与修改 |
-| **发布日历 / 发布台账** | 城市视角的排期与台账 |
-
----
-
-## 🛠️ 技术栈
-
-### 前端
-
-```text
-Vue 3            🟢 渐进式 JS 框架
-Vue Router       🟢 前端路由
-Pinia            🟢 状态管理
-Element Plus     🟢 UI 组件库
-ECharts          🟢 图表可视化
-Vite             🟢 构建工具
-```
-
-### 后端
-
-```text
-Node.js          🟢 服务端运行时
-Express          🟢 Web 框架
-SQLite           🟢 本地关系型数据库（better-sqlite3）
-JWT              🟢 鉴权
-Tencent COS SDK  🟢 对象存储（素材文件、视频上传）
-Winston          🟢 日志模块
-```
-
----
-
-## 📂 项目结构
+## 项目结构
 
 ```text
 yujian-video/
-├── backend/                 ── 后端 API 服务
-│   ├── server.js            ── 入口
-│   ├── db/                  ── 数据库迁移 & 初始化
-│   ├── routes/              ── 路由模块
-│   ├── middleware/          ── 中间件（鉴权、日志等）
-│   └── data.db              ── SQLite 数据文件（首次启动自动生成）
-├── frontend/                ── 前端管理后台
-│   ├── src/
-│   │   ├── views/           ── 页面组件（管理端 + 城市端）
-│   │   ├── api/             ── API 封装
-│   │   ├── layout-builder/  ── 可拖拽布局引擎
-│   │   └── router/          ── 路由
-│   └── vite.config.js       ── Vite 配置
-├── docs/                    ── 项目文档与规划
-├── vue-animated-login/      ── 本地登录页组件依赖
-├── CHANGELOG.md             ── 更新日志
-├── VERSION                  ── 当前版本号
-├── docker-compose.yml       ── Docker 编排
-├── deploy.sh                ── 1Panel 部署脚本
+├── backend/                 # 后端 API 服务
+│   ├── server.js            # 服务入口与业务接口
+│   ├── database.js          # 数据库初始化与迁移
+│   ├── services/            # 后端服务模块
+│   └── test/                # 后端测试
+├── frontend/                # 前端管理后台
+│   ├── src/views/           # 管理端与城市端页面
+│   ├── src/layout-builder/  # 页面布局引擎
+│   ├── src/api/             # API 封装
+│   └── src/router/          # 前端路由
+├── docs/                    # 项目文档
+├── CHANGELOG.md             # 更新日志
+├── VERSION                  # 当前版本号
+├── docker-compose.yml       # Docker 编排配置
+├── deploy.sh                # 部署脚本
 └── README.md
 ```
 
----
+## 快速启动
 
-## 🚀 本地快速启动
-
-### 第一步：安装依赖
+### 1. 安装依赖
 
 ```bash
-# 后端
 cd backend
 npm install
 
-# 前端
 cd ../frontend
 npm install
 ```
 
-### 第二步：配置后端环境变量
+### 2. 配置后端环境变量
 
 ```bash
 cd backend
 cp .env.example .env
 ```
 
-**必改的几项**（`.env`）：
+至少需要配置：
 
 ```ini
 NODE_ENV=development
@@ -147,7 +105,7 @@ ADMIN_USERNAME=admin
 ADMIN_PASSWORD=请改成强密码
 ```
 
-**如果需要使用腾讯 COS 上传素材**，再补充：
+如需使用腾讯云 COS 上传素材，请继续配置：
 
 ```ini
 COS_SECRET_ID=
@@ -158,55 +116,45 @@ COS_DOMAIN=
 COS_CDN_DOMAIN=
 ```
 
-### 第三步：启动后端
+### 3. 启动后端
 
 ```bash
 cd backend
 npm run dev
-# 服务启动在 http://localhost:3001
 ```
 
-### 第四步：启动前端
+默认地址：`http://localhost:3001`
+
+### 4. 启动前端
 
 ```bash
 cd frontend
 npm run dev
-# 前端启动在 http://localhost:3000
 ```
 
-### 首次登录
+默认地址：`http://localhost:3000`
 
-打开浏览器访问 `http://localhost:3000`，用你在 `.env` 中配置的 `ADMIN_USERNAME / ADMIN_PASSWORD` 登录。
+首次进入系统后，使用 `.env` 中配置的 `ADMIN_USERNAME` 和 `ADMIN_PASSWORD` 登录。
 
-登录后可以在 **系统设置 → 账号管理** 中创建城市账号（角色选择 `city`，并绑定城市）。
-
----
-
-## 🧪 构建与测试
-
-### 前端构建
+## 构建与测试
 
 ```bash
 cd frontend
 npm run build
 ```
 
-### 后端测试
-
 ```bash
 cd backend
 npm test
 ```
 
-> 如果后端测试报 `better-sqlite3` 与当前 Node 版本不一致，执行：
-> ```bash
-> cd backend
-> npm rebuild better-sqlite3
-> ```
+如果 `better-sqlite3` 与当前 Node 版本不匹配，可在后端目录执行：
 
----
+```bash
+npm rebuild better-sqlite3
+```
 
-## 📦 部署
+## 部署
 
 ### Docker Compose
 
@@ -214,79 +162,49 @@ npm test
 docker compose up -d --build
 ```
 
-生产环境请记得挂载持久化目录，并在 `.env` 中设置：
+生产环境建议重点确认：
 
-- `DB_PATH`
-- `JWT_SECRET`
-- `ADMIN_PASSWORD`
-- COS 相关参数
+- `JWT_SECRET` 已设置为强随机字符串。
+- `ADMIN_PASSWORD` 已修改为强密码。
+- `DB_PATH` 指向持久化目录。
+- 数据库、上传目录和日志目录有备份策略。
+- COS 权限范围与上传路径符合业务安全要求。
 
-### 1Panel 部署
+### 1Panel
 
-项目内置脚本 `deploy.sh`，在仓库根目录执行：
+项目提供 `deploy.sh` 作为部署参考：
 
 ```bash
 ./deploy.sh all
 ```
 
-脚本中的服务器地址和目录需要按实际服务器情况修改。
+部署前请根据服务器实际情况修改脚本中的服务器地址、部署目录和运行参数。
 
----
+## 上线检查
 
-## 🔒 上线前检查清单
+| 检查项 | 状态 |
+| --- | --- |
+| 环境变量已配置 | 必须 |
+| 管理员默认密码已修改 | 必须 |
+| 数据库持久化目录已挂载 | 必须 |
+| 上传目录和数据库已纳入备份 | 建议 |
+| COS 密钥未提交到代码仓库 | 必须 |
+| `.env`、数据库、日志、上传文件未提交 | 必须 |
+| 前端构建通过 | 建议 |
+| 后端测试通过 | 建议 |
 
-- [ ] `backend/.env` 的 `JWT_SECRET` 已改成强随机字符串
-- [ ] 初始管理员密码已修改
-- [ ] 数据库文件和上传目录有定时备份策略
-- [ ] COS 权限范围和上传路径安全
-- [ ] **不要**把 `.env`、`.jwt_secret`、数据库文件、日志、上传文件提交到 Git
-- [ ] 服务器上**不要**直接复制本机的 `node_modules`，需要重新 `npm install`
+## 版本
 
----
+当前版本：`v1.0.0`
 
-## 📌 版本管理
+版本记录：
 
-当前版本记录在：
+- [VERSION](VERSION)
+- [CHANGELOG.md](CHANGELOG.md)
+- [docs/version-management.md](docs/version-management.md)
 
-- `VERSION`
-- `CHANGELOG.md`
-- `frontend/package.json`
-- `backend/package.json`
+## 许可证
 
-### 简单版本规则
+本项目为内部业务系统，采用专有许可。未经授权，不允许复制、分发、开源、转售或用于其他商业项目。
 
-- 修复问题 → `1.0.0` → `1.0.1`
-- 新增功能 → `1.0.0` → `1.1.0`
-- 大版本改造 → `1.0.0` → `2.0.0`
-
-详细规则见 [docs/version-management.md](docs/version-management.md)
-
----
-
-## 📄 许可证
-
-Copyright © 2026 遇见自媒体运营团队 · All Rights Reserved.
-
-本项目为**内部业务系统**，**默认不开放任何外部许可**。
-
-**你可以：**
-
-- 在本组织内部使用、修改、运行本项目
-
-**你不可以：**
-
-- 将本项目的全部或部分代码用于对外公开、分发、再许可
-- 将本项目用于商业销售或二次授权
-- 移除或修改本版权声明
-
-如需开源发布或商业分发，请先联系运营团队补充正式的 LICENSE 文件并获得书面授权。
-
----
-
-<div align="center">
-
-**Made with ❤️ by 遇见自媒体运营团队**
-
-*当前版本 v1.0.0 · 2026*
-
-</div>
+详情见 [LICENSE](LICENSE)。

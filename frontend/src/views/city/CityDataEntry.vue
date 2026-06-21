@@ -508,7 +508,7 @@ const submitData = async () => {
   if (!dataForm.dateRange || dataForm.dateRange.length !== 2) {
     return ElMessage.warning('请选择时间区间')
   }
-  if (!dataForm.play_count && !dataForm.like_count && !dataForm.deal_count && !dataForm.deal_amount) {
+  if (!dataForm.play_count && !dataForm.like_count && !dataForm.comment_count && !dataForm.favorite_count && !dataForm.share_count && !dataForm.deal_count && !dataForm.deal_amount) {
     return ElMessage.warning('请填写至少一项数据')
   }
 
@@ -520,6 +520,7 @@ const submitData = async () => {
       publish_platform: dataForm.platform,
       publish_account_name: accountName,
       date: startDate,
+      actual_publish_time: startDate,
       play_count: dataForm.play_count,
       like_count: dataForm.like_count,
       comment_count: dataForm.comment_count,

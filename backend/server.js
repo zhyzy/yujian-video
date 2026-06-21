@@ -2159,6 +2159,8 @@ app.post('/api/city-distributions', (req, res) => {
   const id = generateId();
   const isCitySubmit = isCityRole(req.user.role);
   const finalStatus = isCitySubmit ? 'published' : (status || 'distributed');
+  const finalActualPublishTime = actual_publish_time || (finalStatus === 'published' ? date : '');
+  const finalPublishedAt = finalStatus === 'published' ? dayjs().format() : null;
   db.prepare(`
     INSERT INTO city_distributions (
       id, date, city_id, account_id, video_title, video_url, material_url,
@@ -2172,10 +2174,10 @@ app.post('/api/city-distributions', (req, res) => {
     id, date, city_id, account_id, video_title || '城市下发任务', video_url || material_url || '',
     material_url || video_url || '', publish_time || time || '', publishRequirement, finalStatus,
     publish_screenshot || '', publish_platform || '', publish_account_name || '', publish_url || '',
-    actual_publish_time || '', play_count || 0, like_count || 0, comment_count || 0, deal_count || 0, deal_amount || 0, favorite_count || 0,
+    finalActualPublishTime, play_count || 0, like_count || 0, comment_count || 0, deal_count || 0, deal_amount || 0, favorite_count || 0,
     share_count || 0, city_remark || '', isCitySubmit ? req.user.id : null,
     isCitySubmit && (finalStatus === 'published' || publish_url) ? dayjs().format() : null,
-    finalStatus === 'published' ? dayjs().format() : null, material_file_id, schedule_id
+    finalPublishedAt, material_file_id, schedule_id
   );
   const city = db.prepare('SELECT name FROM cities WHERE id = ?').get(city_id);
   notifyCityUsers(city_id, {
@@ -2620,7 +2622,7 @@ app.get('/api/data-tracks', authRequired, (req, res) => {
   res.json(success({ list: tracks, total, page: parseInt(page), pageSize: parseInt(pageSize) }));
 });
 
-app.post('/api/data-tracks', (req, res) => {
+app.post('/api/data-tracks', authRequired, (req, res) => {
   validateRequired(req.body, ['date', 'account_id']);
   const {
     date,
@@ -2639,6 +2641,14 @@ app.post('/api/data-tracks', (req, res) => {
     deals,
     revenue
   } = req.body;
+  const account = db.prepare('SELECT id, city_id FROM accounts WHERE id = ? AND status != ?').get(account_id, 'archived');
+  if (!account) {
+    return res.status(400).json(error('请选择有效的发布账号', 400));
+  }
+  if (isCityRole(req.user.role) && account.city_id !== req.user.city_id) {
+    return res.status(403).json(error('只能录入本城市账号的数据', 403));
+  }
+
   const id = generateId();
   db.prepare(`
     INSERT INTO data_tracks (
@@ -2716,6 +2726,10 @@ app.get('/api/data-dashboard', authRequired, (req, res) => {
         dt.date,
         COALESCE(a.platform, 'other') as platform,
         COALESCE(dt.play_count, 0) as play_count,
+        COALESCE(dt.like_count, 0) as like_count,
+        COALESCE(dt.comment_count, 0) as comment_count,
+        COALESCE(dt.deal_count, 0) as deal_count,
+        COALESCE(dt.deal_amount, 0) as deal_amount,
         a.city_id as city_id
       FROM data_tracks dt
       LEFT JOIN accounts a ON dt.account_id = a.id
@@ -2724,15 +2738,23 @@ app.get('/api/data-dashboard', authRequired, (req, res) => {
         COALESCE(NULLIF(substr(cd.actual_publish_time, 1, 10), ''), cd.date) as date,
         COALESCE(NULLIF(cd.publish_platform, ''), a.platform, 'other') as platform,
         COALESCE(cd.play_count, 0) as play_count,
+        COALESCE(cd.like_count, 0) as like_count,
+        COALESCE(cd.comment_count, 0) as comment_count,
+        COALESCE(cd.deal_count, 0) as deal_count,
+        COALESCE(cd.deal_amount, 0) as deal_amount,
         cd.city_id as city_id
       FROM city_distributions cd
       LEFT JOIN accounts a ON cd.account_id = a.id
       WHERE cd.status = 'published'
     )
-    SELECT
-      platform,
-      COALESCE(SUM(play_count), 0) as plays,
-      COUNT(*) as videos
+	    SELECT
+	      platform,
+	      COALESCE(SUM(play_count), 0) as plays,
+	      COALESCE(SUM(like_count), 0) as likes,
+	      COALESCE(SUM(comment_count), 0) as comments,
+	      COALESCE(SUM(deal_count), 0) as deals,
+	      COALESCE(SUM(deal_amount), 0) as revenue,
+	      COUNT(*) as videos
     FROM all_tracks
     WHERE date >= ? AND date <= ? ${cityFilter}
     GROUP BY platform
@@ -2741,19 +2763,27 @@ app.get('/api/data-dashboard', authRequired, (req, res) => {
   // 趋势数据
   const trend = db.prepare(`
     WITH all_tracks AS (
-      SELECT
-        dt.date,
-        COALESCE(a.platform, 'other') as platform,
-        COALESCE(dt.play_count, 0) as play_count,
-        a.city_id as city_id
+	      SELECT
+	        dt.date,
+	        COALESCE(a.platform, 'other') as platform,
+	        COALESCE(dt.play_count, 0) as play_count,
+	        COALESCE(dt.like_count, 0) as like_count,
+	        COALESCE(dt.comment_count, 0) as comment_count,
+	        COALESCE(dt.deal_count, 0) as deal_count,
+	        COALESCE(dt.deal_amount, 0) as deal_amount,
+	        a.city_id as city_id
       FROM data_tracks dt
       LEFT JOIN accounts a ON dt.account_id = a.id
       UNION ALL
-      SELECT
-        COALESCE(NULLIF(substr(cd.actual_publish_time, 1, 10), ''), cd.date) as date,
-        COALESCE(NULLIF(cd.publish_platform, ''), a.platform, 'other') as platform,
-        COALESCE(cd.play_count, 0) as play_count,
-        cd.city_id as city_id
+	      SELECT
+	        COALESCE(NULLIF(substr(cd.actual_publish_time, 1, 10), ''), cd.date) as date,
+	        COALESCE(NULLIF(cd.publish_platform, ''), a.platform, 'other') as platform,
+	        COALESCE(cd.play_count, 0) as play_count,
+	        COALESCE(cd.like_count, 0) as like_count,
+	        COALESCE(cd.comment_count, 0) as comment_count,
+	        COALESCE(cd.deal_count, 0) as deal_count,
+	        COALESCE(cd.deal_amount, 0) as deal_amount,
+	        cd.city_id as city_id
       FROM city_distributions cd
       LEFT JOIN accounts a ON cd.account_id = a.id
       WHERE cd.status = 'published'
@@ -2761,7 +2791,12 @@ app.get('/api/data-dashboard', authRequired, (req, res) => {
     SELECT
       date,
       platform,
-      COALESCE(SUM(play_count), 0) as plays
+      COALESCE(SUM(play_count), 0) as plays,
+      COALESCE(SUM(like_count), 0) as likes,
+      COALESCE(SUM(comment_count), 0) as comments,
+      COALESCE(SUM(deal_count), 0) as deals,
+      COALESCE(SUM(deal_amount), 0) as revenue,
+      COUNT(*) as videos
     FROM all_tracks
     WHERE date >= ? AND date <= ? ${cityFilter}
     GROUP BY date, platform

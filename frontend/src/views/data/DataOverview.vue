@@ -737,7 +737,7 @@ const secondaryKPIs = computed(() => [
 const viewsSeries = computed(() => {
   const trend = currentStats.value.trend || []
   const dailyMap = {}
-  for (const t of trend) dailyMap[t.date] = (dailyMap[t.date] || 0) + (Number(t.plays) || 0)
+  for (const t of trend) dailyMap[t.date] = (dailyMap[t.date] || 0) + (Number(t.plays ?? t.views ?? 0) || 0)
   const days = rangeDays.value
   const series = []
   for (let i = days - 1; i >= 0; i--) {
@@ -861,10 +861,11 @@ const formatMoney = (n) => {
 }
 
 const canSubmit = computed(() => {
+  const hasMetric = entryForm.views || entryForm.likes || entryForm.comments || entryForm.favorites || entryForm.shares || entryForm.deals || entryForm.revenue
   if (entryMode.value === 'single') {
-    return entryForm.date && entryForm.video_title && (entryForm.views || entryForm.likes || entryForm.deals || entryForm.revenue)
+    return entryForm.date && entryForm.video_title && hasMetric
   } else {
-    return entryForm.dateRange && entryForm.dateRange.length === 2 && entryForm.account_id && (entryForm.views || entryForm.likes || entryForm.deals || entryForm.revenue)
+    return entryForm.dateRange && entryForm.dateRange.length === 2 && entryForm.account_id && hasMetric
   }
 })
 
@@ -964,12 +965,7 @@ const submitEntry = async () => {
           video_title: `区间汇总 - ${startDate} 至 ${endDate}`
         }
 
-        try {
-          const res = await createDataTrack(payload)
-          tracks.value.unshift(normalizeTrack({ ...payload, id: res?.id || `t${Date.now()}_${i}` }))
-        } catch {
-          tracks.value.unshift(normalizeTrack({ ...payload, id: `t${Date.now()}_${i}` }))
-        }
+        await createDataTrack(payload)
       }
 
       ElMessage.success(`已成功录入 ${days} 天的区间汇总数据`)
@@ -981,12 +977,7 @@ const submitEntry = async () => {
         video_title: entryForm.video_title
       }
 
-      try {
-        const res = await createDataTrack(payload)
-        tracks.value.unshift(normalizeTrack({ ...payload, id: res?.id || 't' + Date.now() }))
-      } catch {
-        tracks.value.unshift(normalizeTrack({ ...payload, id: 't' + Date.now() }))
-      }
+      await createDataTrack(payload)
 
       ElMessage.success('数据已保存')
     }
@@ -1001,7 +992,11 @@ const submitEntry = async () => {
     })
     entryMode.value = 'single'
     showEntry.value = false
+    await loadData()
     nextTick(() => renderCharts())
+  } catch (e) {
+    const message = e?.response?.data?.message || e?.message || '请检查账号、日期和后端服务'
+    ElMessage.error(`保存失败：${message}`)
   } finally {
     saving.value = false
   }
@@ -1014,13 +1009,29 @@ const renderCharts = () => {
   const byDayViews = []
   const byDayLikes = []
   const byDayComments = []
+  const trendRows = currentStats.value.trend || []
+  const trendMap = {}
+  for (const item of trendRows) {
+    const date = item.date
+    if (!date) continue
+    if (!trendMap[date]) trendMap[date] = { views: 0, likes: 0, comments: 0 }
+    trendMap[date].views += Number(item.plays ?? item.views ?? 0)
+    trendMap[date].likes += Number(item.likes ?? item.like_count ?? 0)
+    trendMap[date].comments += Number(item.comments ?? item.comment_count ?? 0)
+  }
   for (let i = days - 1; i >= 0; i--) {
     const d = dayjs().subtract(i, 'day').format('YYYY-MM-DD')
     labels.push(dayjs(d).format('M/D'))
-    const rows = tracks.value.filter(t => t.date === d)
-    byDayViews.push(rows.reduce((n, t) => n + (t.views || 0), 0))
-    byDayLikes.push(rows.reduce((n, t) => n + (t.likes || 0), 0))
-    byDayComments.push(rows.reduce((n, t) => n + (t.comments || 0), 0))
+    if (trendMap[d]) {
+      byDayViews.push(trendMap[d].views)
+      byDayLikes.push(trendMap[d].likes)
+      byDayComments.push(trendMap[d].comments)
+    } else {
+      const rows = tracks.value.filter(t => t.date === d)
+      byDayViews.push(rows.reduce((n, t) => n + (t.views || 0), 0))
+      byDayLikes.push(rows.reduce((n, t) => n + (t.likes || 0), 0))
+      byDayComments.push(rows.reduce((n, t) => n + (t.comments || 0), 0))
+    }
   }
 
   if (trendChartRef.value) {

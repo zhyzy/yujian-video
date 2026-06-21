@@ -6,7 +6,7 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node server.js",
-    "test": "node --test test/accounts.test.js test/ai.test.js test/auth.test.js test/materials.test.js test/schedules.test.js"
+    "test": "node --test test/accounts.test.js test/ai.test.js test/auth.test.js test/materials.test.js test/schedules.test.js test/data-dashboard.test.js"
   },
   "keywords": [
     "media",
@@ -14,7 +14,7 @@
     "dashboard"
   ],
   "author": "",
-  "license": "ISC",
+  "license": "UNLICENSED",
   "dependencies": {
     "bcryptjs": "^2.4.3",
     "better-sqlite3": "^11.10.0",
