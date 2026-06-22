@@ -2822,6 +2822,7 @@ app.post('/api/ai-reports/generate', async (req, res) => {
   const type = req.body.type || 'daily';
   let periodStart = req.body.periodStart;
   let periodEnd = req.body.periodEnd;
+  const userContext = req.body.userContext && typeof req.body.userContext === 'object' ? req.body.userContext : {};
   const id = generateId();
 
   try {
@@ -2829,19 +2830,19 @@ app.post('/api/ai-reports/generate', async (req, res) => {
     if (type === 'daily') {
       periodStart = periodStart || dayjs().format('YYYY-MM-DD');
       periodEnd = periodEnd || periodStart;
-      result = await aiService.generateDailyReport(db, periodStart);
+      result = await aiService.generateDailyReport(db, periodStart, { userContext });
     } else if (type === 'weekly') {
       periodEnd = periodEnd || dayjs().format('YYYY-MM-DD');
       periodStart = periodStart || dayjs(periodEnd).subtract(6, 'day').format('YYYY-MM-DD');
-      result = await aiService.generateWeeklyReport(db, periodStart, periodEnd);
+      result = await aiService.generateWeeklyReport(db, periodStart, periodEnd, { userContext });
     } else if (type === 'monthly') {
       periodEnd = periodEnd || dayjs().format('YYYY-MM-DD');
       periodStart = periodStart || dayjs(periodEnd).startOf('month').format('YYYY-MM-DD');
-      result = await aiService.generateMonthlyReport(db, periodStart, periodEnd);
+      result = await aiService.generateMonthlyReport(db, periodStart, periodEnd, { userContext });
     } else {
       periodStart = periodStart || dayjs().format('YYYY-MM-DD');
       periodEnd = periodEnd || periodStart;
-      result = await aiService.generateDailyReport(db, periodStart);
+      result = await aiService.generateDailyReport(db, periodStart, { userContext });
     }
 
     db.prepare(`

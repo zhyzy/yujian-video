@@ -94,9 +94,11 @@ export const layoutModuleCatalog = {
   ],
   aiReports: [
     { key: 'page-head', title: '页面头部', span: 12, visible: true },
-    { key: 'generate-panel', title: '生成日报', span: 5, visible: true },
-    { key: 'report-list', title: '日报列表', span: 5, visible: true },
-    { key: 'report-content', title: '报告内容', span: 7, visible: true }
+    { key: 'config-panel', title: '报告配置', span: 3, visible: true },
+    { key: 'chat-panel', title: 'AI 对话', span: 5, visible: true },
+    { key: 'insight-panel', title: '报告洞察', span: 4, visible: true },
+    { key: 'preview-panel', title: '报告预览', span: 8, visible: true },
+    { key: 'history-panel', title: '历史记录', span: 4, visible: true }
   ],
   hqAccounts: [
     { key: 'page-head', title: '页面头部', span: 12, visible: true },
@@ -155,7 +157,8 @@ export const buildDefaultLayouts = () => Object.fromEntries(
 )
 
 const deprecatedModuleKeys = {
-  dataOverview: ['rank-panel']
+  dataOverview: ['rank-panel'],
+  aiReports: ['generate-panel', 'report-list', 'report-content']
 }
 
 export const normalizeLayout = (pageKey, savedLayout = {}) => {

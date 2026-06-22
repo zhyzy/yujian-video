@@ -403,6 +403,18 @@ class AIService {
   }
 
   buildPrompt(data) {
+    const context = data.meta.userContext || {};
+    const contextText = [
+      context.department ? `所属部门：${context.department}` : '',
+      context.project ? `关联项目：${context.project}` : '',
+      context.tone ? `输出语气：${context.tone}` : '',
+      context.length ? `篇幅要求：${context.length}` : '',
+      Array.isArray(context.keywords) && context.keywords.length ? `关注关键词：${context.keywords.join('、')}` : '',
+      context.notes ? `用户补充说明：\n${context.notes}` : '',
+      Array.isArray(context.chatNotes) && context.chatNotes.length ? `对话补充内容：\n${context.chatNotes.map((item, index) => `${index + 1}. ${item}`).join('\n')}` : '',
+      Array.isArray(context.checkedItems) && context.checkedItems.length ? `用户确认需要覆盖的内容：${context.checkedItems.join('、')}` : ''
+    ].filter(Boolean).join('\n\n');
+
     return `请基于以下“全站运营数据”生成一份专业的中文 ${data.meta.title}。
 
 要求：
@@ -412,6 +424,10 @@ class AIService {
 4. 最后输出“下一步行动清单”，按优先级列出 5-8 条具体动作。
 5. 不要编造不存在的数据。数据为 0 时要说明口径可能未填报或暂无数据。
 6. 风格要像运营负责人写给管理层的日报，简洁、直接、可执行。
+7. 如果用户补充了人工工作内容，请把它和系统数据融合，不要孤立罗列。
+
+用户补充上下文：
+${contextText || '无'}
 
 全站运营数据 JSON：
 \`\`\`json
@@ -421,6 +437,11 @@ ${safeJson(data)}
 
   localReport(data) {
     const s = data.summary;
+    const context = data.meta.userContext || {};
+    const notes = [
+      context.notes,
+      ...(Array.isArray(context.chatNotes) ? context.chatNotes : [])
+    ].filter(Boolean);
     const cityRisk = s.cityDistribution.overdue > 0
       ? `存在 **${s.cityDistribution.overdue}** 个城市下发任务超期未完成，需要立即跟进。`
       : '城市下发暂无超期任务，整体协同风险可控。';
@@ -443,6 +464,9 @@ ${safeJson(data)}
 - 发布执行：总部排期共 **${s.schedule.total}** 条，已发布 **${s.schedule.published}** 条，完成率 **${s.derived.publishCompletionRate}%**。
 - 城市协同：下发任务 **${s.cityDistribution.total}** 条，已发布 **${s.cityDistribution.published}** 条，完成率 **${s.derived.cityCompletionRate}%**。
 - 数据表现：${performanceRisk}
+${notes.length ? `- 人工补充：${notes[0]}` : ''}
+
+${notes.length > 1 ? `## 今日人工补充\n${notes.map(item => `- ${item}`).join('\n')}\n` : ''}
 
 ## 素材生产分析
 - 当前素材记录 **${s.production.materialRecords}** 条，已完成记录 **${s.production.completedRecords}** 条，待推进记录 **${s.production.plannedRecords}** 条。
@@ -477,8 +501,9 @@ ${platformLines}
 > AI 服务未配置或不可用时，本报告由系统基于全站数据自动生成。`;
   }
 
-  async generateOperationalReport(db, type, startDate, endDate) {
+  async generateOperationalReport(db, type, startDate, endDate, options = {}) {
     const rawData = this.collectReportData(db, startDate, endDate, type);
+    rawData.meta.userContext = options.userContext || {};
     const prompt = this.buildPrompt(rawData);
     let content;
 
@@ -511,16 +536,16 @@ ${platformLines}
     };
   }
 
-  async generateDailyReport(db, date) {
-    return this.generateOperationalReport(db, 'daily', date, date);
+  async generateDailyReport(db, date, options = {}) {
+    return this.generateOperationalReport(db, 'daily', date, date, options);
   }
 
-  async generateWeeklyReport(db, weekStart, weekEnd) {
-    return this.generateOperationalReport(db, 'weekly', weekStart, weekEnd);
+  async generateWeeklyReport(db, weekStart, weekEnd, options = {}) {
+    return this.generateOperationalReport(db, 'weekly', weekStart, weekEnd, options);
   }
 
-  async generateMonthlyReport(db, monthStart, monthEnd) {
-    return this.generateOperationalReport(db, 'monthly', monthStart, monthEnd);
+  async generateMonthlyReport(db, monthStart, monthEnd, options = {}) {
+    return this.generateOperationalReport(db, 'monthly', monthStart, monthEnd, options);
   }
 }
 
