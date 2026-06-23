@@ -21,6 +21,27 @@ const getReportTitle = (type) => ({
   monthly: '运营月报'
 }[type] || '运营报告');
 
+const platformLabel = (value) => ({
+  douyin: '抖音',
+  kuaishou: '快手',
+  weixin: '视频号',
+  xiaohongshu: '小红书',
+  other: '其他'
+}[value] || value || '其他');
+
+const splitTextLines = (value) => String(value || '')
+  .split(/\n+/)
+  .map(item => item.trim().replace(/^[-•\d、.\s]+/, '').trim())
+  .filter(Boolean);
+
+const isUsefulDailyNote = (value = '') => {
+  const text = String(value).trim();
+  if (!text) return false;
+  if (/^(你好|您好|在吗|测试|收到|好的|ok|OK|哈喽|hello|hi)$/i.test(text)) return false;
+  if (/^(优化语言表达|补充数据指标|生成明日计划|精简摘要)$/.test(text)) return false;
+  return /[\d一二三四五六七八九十]|完成|发布|剪辑|拍摄|上传|对接|跟进|协调|未完成|问题|准备|安排|数据|账号|城市|明日|今日/.test(text);
+};
+
 class AIService {
   constructor() {
     this.apiUrl = VOLCANO_ARK_API_URL.replace(/\/$/, '');
@@ -404,16 +425,51 @@ class AIService {
 
   buildPrompt(data) {
     const context = data.meta.userContext || {};
+    const isWorkSummary = context.reportStyle === 'work_summary';
     const contextText = [
+      context.reportStyle ? `日报模板：${context.reportStyle === 'work_summary' ? '工作汇报型日报' : '数据复盘型报告'}` : '',
       context.department ? `所属部门：${context.department}` : '',
       context.project ? `关联项目：${context.project}` : '',
       context.tone ? `输出语气：${context.tone}` : '',
       context.length ? `篇幅要求：${context.length}` : '',
       Array.isArray(context.keywords) && context.keywords.length ? `关注关键词：${context.keywords.join('、')}` : '',
-      context.notes ? `用户补充说明：\n${context.notes}` : '',
-      Array.isArray(context.chatNotes) && context.chatNotes.length ? `对话补充内容：\n${context.chatNotes.map((item, index) => `${index + 1}. ${item}`).join('\n')}` : '',
+      context.notes ? `今日完成事项：\n${context.notes}` : '',
+      context.unfinishedNotes ? `未完成工作：\n${context.unfinishedNotes}` : '',
+      context.coordinationNotes ? `需协调工作：\n${context.coordinationNotes}` : '',
+      Array.isArray(context.chatNotes) && context.chatNotes.length ? `对话补充内容：\n${context.chatNotes.filter(isUsefulDailyNote).map((item, index) => `${index + 1}. ${item}`).join('\n')}` : '',
       Array.isArray(context.checkedItems) && context.checkedItems.length ? `用户确认需要覆盖的内容：${context.checkedItems.join('、')}` : ''
     ].filter(Boolean).join('\n\n');
+
+    if (isWorkSummary) {
+      return `请基于以下“全站运营数据”和“用户补充上下文”，生成一份可直接发送的中文工作汇报日报。
+
+强制格式：
+【${dayjs(data.meta.startDate).format('M月D日')}工作汇报】
+1、...
+2、...
+
+【未完成工作】
+...
+
+【需协调工作】
+无 或 具体事项
+
+要求：
+1. 必须是工作清单口吻，像员工每天发给负责人的日报，不要写“核心结论、分析、风险、建议”等报告化标题。
+2. 每条尽量一行，简单直接，有具体数量就写数量。
+3. 系统数据只用于补齐事实，不要编造不存在的城市、账号和数量。
+4. 用户补充内容优先级最高，必须融合进对应条目。
+5. 未完成工作和需协调工作如果用户没有明确提供，就根据待发布、城市待处理、超期和数据缺口谨慎生成；没有就写“无”。
+6. 语气保持自然，可以使用顿号、括号和感叹号，但不要夸张。
+
+用户补充上下文：
+${contextText || '无'}
+
+全站运营数据 JSON：
+\`\`\`json
+${safeJson(data)}
+\`\`\``;
+    }
 
     return `请基于以下“全站运营数据”生成一份专业的中文 ${data.meta.title}。
 
@@ -425,6 +481,7 @@ class AIService {
 5. 不要编造不存在的数据。数据为 0 时要说明口径可能未填报或暂无数据。
 6. 风格要像运营负责人写给管理层的日报，简洁、直接、可执行。
 7. 如果用户补充了人工工作内容，请把它和系统数据融合，不要孤立罗列。
+8. 不要把“你好、收到、测试、优化语言表达”等对话指令写进报告正文。
 
 用户补充上下文：
 ${contextText || '无'}
@@ -436,6 +493,10 @@ ${safeJson(data)}
   }
 
   localReport(data) {
+    if (data.meta.userContext?.reportStyle === 'work_summary') {
+      return this.localWorkSummaryReport(data);
+    }
+
     const s = data.summary;
     const context = data.meta.userContext || {};
     const notes = [
@@ -499,6 +560,128 @@ ${platformLines}
 6. 每日结束前统一核对素材、发布、数据三类口径。
 
 > AI 服务未配置或不可用时，本报告由系统基于全站数据自动生成。`;
+  }
+
+  localWorkSummaryReport(data) {
+    const s = data.summary;
+    const details = data.details || {};
+    const context = data.meta.userContext || {};
+    const notes = [
+      context.notes,
+      ...(Array.isArray(context.chatNotes) ? context.chatNotes : [])
+    ].filter(isUsefulDailyNote);
+    const manualDone = splitTextLines(context.notes);
+    const manualUnfinished = splitTextLines(context.unfinishedNotes);
+    const manualCoordination = splitTextLines(context.coordinationNotes);
+    const dayTitle = dayjs(data.meta.startDate).format('M月D日');
+    const lines = [];
+
+    const editCount = s.production.editCount || 0;
+    const shootCount = s.production.shootCount || 0;
+    const uploadCount = s.production.uploadCount || 0;
+    if (editCount || shootCount || uploadCount) {
+      const parts = [];
+      if (shootCount) parts.push(`拍摄${shootCount}条`);
+      if (editCount) parts.push(`信息流剪辑${editCount}条`);
+      if (uploadCount) parts.push(`上传${uploadCount}条`);
+      lines.push(`视频产出：${parts.join('、')}`);
+    }
+
+    const platformStats = details.platformStats || [];
+    const published = s.schedule.published || 0;
+    if (published || platformStats.length) {
+      const platformText = platformStats
+        .filter(item => Number(item.video_count || 0) > 0)
+        .map(item => `${platformLabel(item.platform)}${item.video_count}条`)
+        .join('、');
+      lines.push(`发布总部运营账号视频${published || platformStats.reduce((n, item) => n + Number(item.video_count || 0), 0)}条${platformText ? `：${platformText}` : ''}`);
+    }
+
+    const cityStats = (details.cityStats || []).filter(item => Number(item.published_count || 0) || Number(item.task_count || 0));
+    cityStats.forEach(item => {
+      const count = Number(item.published_count || item.task_count || 0);
+      lines.push(`对接${item.city_name}账号视频下发${count}条（发布）`);
+    });
+
+    manualDone.forEach(item => {
+      if (!lines.includes(item)) lines.push(item);
+    });
+
+    notes.forEach(note => {
+      splitTextLines(note).filter(isUsefulDailyNote).forEach(item => {
+        if (!lines.includes(item)) lines.push(item);
+      });
+    });
+
+    if (!lines.length) {
+      lines.push('今日完成系统数据整理和运营日报梳理');
+    }
+
+    const unfinished = [];
+    manualUnfinished.forEach(item => unfinished.push(item));
+    if (s.schedule.pending) unfinished.push(`跟进总部待发布视频${s.schedule.pending}条`);
+    if (s.cityDistribution.pending) unfinished.push(`跟进城市端待发布/待确认任务${s.cityDistribution.pending}条`);
+    if (s.cityDistribution.overdue) unfinished.push(`跟进超期城市任务${s.cityDistribution.overdue}条`);
+    if (!s.performance.videoCount) unfinished.push('关注发布视频的相关数据流量');
+
+    const coordinate = [];
+    manualCoordination.forEach(item => coordinate.push(item));
+    if (s.schedule.failed) coordinate.push(`需协调处理总部发布失败${s.schedule.failed}条`);
+    if (s.cityDistribution.failed) coordinate.push(`需协调处理城市发布失败${s.cityDistribution.failed}条`);
+
+    return `【${dayTitle}工作汇报】
+${lines.map((line, index) => `${index + 1}、${line}`).join('\n')}
+【未完成工作】
+${unfinished.length ? unfinished.join('\n') : '无'}
+【需协调工作】
+${coordinate.length ? coordinate.join('\n') : '无'}`;
+  }
+
+  localChatReply(message, context = {}) {
+    const text = String(message || '').trim();
+    if (!text) return '您可以直接输入今天完成的工作、未完成事项或需要协调的问题，我会帮您整理成日报口吻。';
+    if (/^(你好|您好|在吗|哈喽|hello|hi)$/i.test(text)) {
+      return '在的。您可以按“一行一件事”补充今天完成的工作，例如“对接西安账号视频下发8条（发布）”。这类内容会进入日报；普通聊天不会写进正文。';
+    }
+    if (/格式|整理|日报|工作汇报/.test(text)) {
+      return '可以。我会按“【日期工作汇报】+ 编号事项 +【未完成工作】+【需协调工作】”的格式整理，尽量保留具体城市、账号和数量，不写空泛分析。';
+    }
+    if (/精简|简单/.test(text)) {
+      return '收到，后续生成会保持简洁，每条尽量一行，只保留可汇报的具体事项和数量。';
+    }
+    if (/未完成|跟进/.test(text)) {
+      return '收到，这类内容我会优先放到【未完成工作】里；如果涉及他人配合，会放到【需协调工作】。';
+    }
+    if (isUsefulDailyNote(text)) {
+      return `收到，这条会作为日报素材处理：${text.slice(0, 80)}${text.length > 80 ? '...' : ''}。生成时我会把它放进完成、未完成或需协调的对应位置。`;
+    }
+    return '收到。这条更像普通对话，我不会直接写进日报正文。您可以继续补充具体数量、城市、账号或明日跟进事项。';
+  }
+
+  async generateChatReply(db, payload = {}) {
+    const message = String(payload.message || '').trim();
+    const context = payload.userContext || {};
+    if (this.isConfigured()) {
+      try {
+        const periodStart = payload.periodStart || dayjs().format('YYYY-MM-DD');
+        const periodEnd = payload.periodEnd || periodStart;
+        const data = this.collectReportData(db, periodStart, periodEnd, payload.type || 'daily');
+        data.meta.userContext = context;
+        return await this.chat([
+          {
+            role: 'system',
+            content: '你是短视频运营日报助手。回复必须简洁、具体、面向工作汇报，不要输出泛泛分析。'
+          },
+          {
+            role: 'user',
+            content: `当前用户输入：${message}\n\n当前日报配置：${safeJson(context)}\n\n系统数据摘要：${safeJson(data.summary)}\n\n请给出一段自然的对话回复。若输入是寒暄或无效指令，要提示用户补充具体工作事实；若输入包含数量、城市、账号、未完成或需协调事项，要说明会进入对应日报模块。`
+          }
+        ], 0.25);
+      } catch {
+        return this.localChatReply(message, context);
+      }
+    }
+    return this.localChatReply(message, context);
   }
 
   async generateOperationalReport(db, type, startDate, endDate, options = {}) {

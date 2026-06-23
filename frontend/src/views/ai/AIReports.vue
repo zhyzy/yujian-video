@@ -81,6 +81,22 @@
           </div>
 
           <div class="config-section">
+            <label>日报模板</label>
+            <div class="template-grid">
+              <button
+                v-for="item in templateOptions"
+                :key="item.value"
+                class="template-card"
+                :class="{ active: form.reportStyle === item.value }"
+                @click="form.reportStyle = item.value"
+              >
+                <strong>{{ item.label }}</strong>
+                <span>{{ item.desc }}</span>
+              </button>
+            </div>
+          </div>
+
+          <div class="config-section">
             <label>AI 模型设置</label>
             <el-select v-model="form.model" class="full-control">
               <el-option label="DeepSeek / 火山方舟" value="deepseek-v4-flash" />
@@ -122,6 +138,31 @@
               <el-option label="播放增长" value="播放增长" />
               <el-option label="成交转化" value="成交转化" />
             </el-select>
+          </div>
+
+          <div class="config-section">
+            <label>日报事实</label>
+            <el-input
+              v-model="form.manualDone"
+              type="textarea"
+              :rows="4"
+              resize="none"
+              placeholder="今日完成事项，一行一条。例如：对接西安账号视频下发8条（发布）"
+            />
+            <el-input
+              v-model="form.manualUnfinished"
+              type="textarea"
+              :rows="3"
+              resize="none"
+              placeholder="未完成工作，一行一条。例如：跟进榆林账号准备情况"
+            />
+            <el-input
+              v-model="form.manualCoordination"
+              type="textarea"
+              :rows="2"
+              resize="none"
+              placeholder="需协调工作，没有可留空"
+            />
           </div>
 
           <div class="config-section">
@@ -199,7 +240,7 @@
               @keydown.meta.enter.prevent="sendMessage"
               @keydown.ctrl.enter.prevent="sendMessage"
             ></textarea>
-            <button class="send-btn" type="button" :disabled="!inputMessage.trim()" @click="sendMessage">
+            <button class="send-btn" type="button" :disabled="!inputMessage.trim() || chatting" @click="sendMessage">
               <el-icon><Promotion /></el-icon>
             </button>
           </div>
@@ -313,7 +354,21 @@
               </div>
             </div>
 
-            <div class="report-body" v-html="renderedContent"></div>
+            <div v-if="structuredSections.length" class="structured-report">
+              <section v-for="section in structuredSections" :key="section.title" class="summary-section">
+                <header>
+                  <span>{{ section.badge }}</span>
+                  <h4>{{ section.title }}</h4>
+                </header>
+                <ol v-if="section.ordered">
+                  <li v-for="item in section.items" :key="item">{{ item }}</li>
+                </ol>
+                <ul v-else>
+                  <li v-for="item in section.items" :key="item">{{ item }}</li>
+                </ul>
+              </section>
+            </div>
+            <div v-else class="report-body" v-html="renderedContent"></div>
           </div>
         </section>
       </template>
@@ -410,6 +465,7 @@ const activeId = ref('')
 const activeContent = ref('')
 const activeRawData = ref(null)
 const generating = ref(false)
+const chatting = ref(false)
 const generationStepIndex = ref(0)
 const dailyUsed = ref(12)
 const inputMessage = ref('')
@@ -422,11 +478,15 @@ const form = reactive({
   periodEnd: range.value[1],
   model: 'deepseek-v4-flash',
   temperature: 0.4,
+  reportStyle: 'work_summary',
   tone: '专业严谨',
   length: '中等',
   department: '运营部',
   project: '遇见自媒体运营',
-  keywords: ['发布效率', '城市填报', '播放增长']
+  keywords: ['发布效率', '城市填报', '播放增长'],
+  manualDone: '',
+  manualUnfinished: '',
+  manualCoordination: ''
 })
 
 const checklist = reactive([
@@ -444,6 +504,11 @@ const typeOptions = [
   { label: '日报', value: 'daily', icon: Clock },
   { label: '周报', value: 'weekly', icon: Histogram },
   { label: '月报', value: 'monthly', icon: DataAnalysis }
+]
+
+const templateOptions = [
+  { label: '工作汇报型', value: 'work_summary', desc: '按编号列今日完成、未完成、需协调' },
+  { label: '数据复盘型', value: 'data_review', desc: '偏数据分析、趋势和问题复盘' }
 ]
 
 const messages = ref([
@@ -556,8 +621,11 @@ const reportSummary = computed(() => activeRawData.value?.summary || null)
 const detailData = computed(() => activeRawData.value?.details || {})
 
 const parsedTitle = computed(() => {
-  const titleLine = (activeContent.value || '').split('\n').find(line => line.trim().startsWith('#'))
+  const lines = (activeContent.value || '').split('\n')
+  const titleLine = lines.find(line => line.trim().startsWith('#'))
   if (titleLine) return titleLine.replace(/^#+\s*/, '').trim()
+  const bracketTitle = lines.find(line => /^【.+】$/.test(line.trim()))
+  if (bracketTitle) return bracketTitle.trim().replace(/^【|】$/g, '')
   return `${reportTypeLabel(form.type)} · ${form.periodStart}`
 })
 
@@ -584,32 +652,32 @@ const insightCards = computed(() => {
   const summary = reportSummary.value || {}
   return [
     {
-      label: '完成事项',
-      value: (summary.schedule?.published || 0) + (summary.cityDistribution?.published || 0),
-      hint: '总部发布 + 城市发布',
+      label: '总部发布',
+      value: summary.schedule?.published || 0,
+      hint: '总部运营账号视频',
       icon: CircleCheckFilled,
       color: '#2563eb'
     },
     {
-      label: '解决问题',
-      value: (summary.schedule?.failed || 0) + (summary.cityDistribution?.failed || 0),
-      hint: '失败项需复盘',
+      label: '城市发布',
+      value: summary.cityDistribution?.published || 0,
+      hint: '含城市端发布填报',
+      icon: CircleCheckFilled,
+      color: '#16a34a'
+    },
+    {
+      label: '未完成',
+      value: (summary.schedule?.pending || 0) + (summary.cityDistribution?.pending || 0),
+      hint: '待发布 / 待确认',
       icon: WarningFilled,
       color: '#f97316'
     },
     {
-      label: '效率提升',
-      value: `${summary.derived?.publishCompletionRate || 0}%`,
-      hint: '发布完成率',
+      label: '数据关注',
+      value: formatNumber(summary.performance?.playCount || 0),
+      hint: '本周期播放',
       icon: TrendCharts,
       color: '#8b5cf6'
-    },
-    {
-      label: '整体进度',
-      value: `${summary.derived?.cityCompletionRate || 0}%`,
-      hint: '城市完成率',
-      icon: Aim,
-      color: '#ef4444'
     }
   ]
 })
@@ -658,15 +726,30 @@ const progressPoints = computed(() => {
   })
 })
 
-const userChatNotes = computed(() => messages.value.filter(item => item.role === 'user').map(item => item.content))
+const isUsefulDailyNote = (value = '') => {
+  const text = String(value).trim()
+  if (!text) return false
+  if (/^(你好|您好|在吗|测试|收到|好的|ok|OK|哈喽|hello|hi)$/i.test(text)) return false
+  if (/^(优化语言表达|补充数据指标|生成明日计划|精简摘要)$/.test(text)) return false
+  return /[\d一二三四五六七八九十]|完成|发布|剪辑|拍摄|上传|对接|跟进|协调|未完成|问题|准备|安排|数据|账号|城市|明日|今日/.test(text)
+}
+
+const userChatNotes = computed(() => messages.value
+  .filter(item => item.role === 'user')
+  .map(item => item.content)
+  .filter(isUsefulDailyNote)
+)
 
 const buildUserContext = () => ({
+  reportStyle: form.reportStyle,
   department: form.department,
   project: form.project,
   tone: form.tone,
   length: form.length,
   keywords: form.keywords,
-  notes: '',
+  notes: form.manualDone,
+  unfinishedNotes: form.manualUnfinished,
+  coordinationNotes: form.manualCoordination,
   chatNotes: userChatNotes.value,
   checkedItems: checklist.filter(item => item.checked).map(item => item.label)
 })
@@ -675,7 +758,38 @@ const insertPrompt = (text) => {
   inputMessage.value = inputMessage.value ? `${inputMessage.value}\n${text}` : text
 }
 
-const sendMessage = () => {
+const streamChatReply = async (payload, targetMessage) => {
+  const token = localStorage.getItem('auth_token')
+  const response = await fetch('/api/ai-reports/chat', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {})
+    },
+    body: JSON.stringify(payload)
+  })
+  if (!response.ok || !response.body) throw new Error('AI 对话请求失败')
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buffer += decoder.decode(value, { stream: true })
+    const events = buffer.split('\n\n')
+    buffer = events.pop() || ''
+    for (const eventText of events) {
+      const eventType = eventText.match(/^event:\s*(.+)$/m)?.[1]
+      const dataLine = eventText.match(/^data:\s*(.+)$/m)?.[1]
+      if (!dataLine) continue
+      const data = JSON.parse(dataLine)
+      if (eventType === 'chunk') targetMessage.content += data.text || ''
+      if (eventType === 'error') throw new Error(data.message || 'AI 对话失败')
+    }
+  }
+}
+
+const sendMessage = async () => {
   const content = inputMessage.value.trim()
   if (!content) return
   messages.value.push({
@@ -685,12 +799,27 @@ const sendMessage = () => {
     time: dayjs().format('HH:mm')
   })
   inputMessage.value = ''
-  messages.value.push({
+  const reply = {
     id: `a-${Date.now()}`,
     role: 'assistant',
-    content: '收到，我会把这条补充内容放进本次日报里。继续补充也可以，准备好后点击“开始生成”。',
+    content: '',
     time: dayjs().format('HH:mm')
-  })
+  }
+  messages.value.push(reply)
+  chatting.value = true
+  try {
+    await streamChatReply({
+      message: content,
+      type: form.type,
+      periodStart: form.periodStart,
+      periodEnd: form.periodEnd,
+      userContext: buildUserContext()
+    }, reply)
+  } catch (error) {
+    reply.content = error?.message || 'AI 对话失败，请稍后重试。'
+  } finally {
+    chatting.value = false
+  }
 }
 
 const parseRawData = (value) => {
@@ -795,6 +924,36 @@ const renderedContent = computed(() => (activeContent.value || '').split('\n').m
   if (/^\d+\.\s+/.test(trimmed)) return `<li class="num">${renderInline(trimmed.replace(/^\d+\.\s+/, ''))}</li>`
   return `<p>${renderInline(trimmed)}</p>`
 }).join('\n'))
+
+const stripListPrefix = (value = '') => value.trim().replace(/^[-•\d、.\s]+/, '').trim()
+
+const structuredSections = computed(() => {
+  const content = activeContent.value || ''
+  if (!/^【.+工作汇报】/m.test(content)) return []
+  const lines = content.split('\n').map(line => line.trim()).filter(Boolean)
+  const titleIndex = lines.findIndex(line => /^【.+工作汇报】$/.test(line))
+  const unfinishedIndex = lines.findIndex(line => line === '【未完成工作】')
+  const coordinateIndex = lines.findIndex(line => line === '【需协调工作】')
+  if (titleIndex < 0) return []
+  const doneLines = lines
+    .slice(titleIndex + 1, unfinishedIndex > -1 ? unfinishedIndex : lines.length)
+    .map(stripListPrefix)
+    .filter(Boolean)
+  const unfinishedLines = lines
+    .slice(unfinishedIndex > -1 ? unfinishedIndex + 1 : lines.length, coordinateIndex > -1 ? coordinateIndex : lines.length)
+    .map(stripListPrefix)
+    .filter(Boolean)
+  const coordinateLines = lines
+    .slice(coordinateIndex > -1 ? coordinateIndex + 1 : lines.length)
+    .map(stripListPrefix)
+    .filter(Boolean)
+
+  return [
+    { title: '今日完成工作', badge: '完成', ordered: true, items: doneLines.length ? doneLines : ['暂无完成事项'] },
+    { title: '未完成工作', badge: '跟进', ordered: false, items: unfinishedLines.length ? unfinishedLines : ['无'] },
+    { title: '需协调工作', badge: '协调', ordered: false, items: coordinateLines.length ? coordinateLines : ['无'] }
+  ]
+})
 
 const copyReport = async () => {
   if (!activeContent.value) return
@@ -955,7 +1114,8 @@ onMounted(loadReports)
 }
 
 .quick-grid,
-.type-grid {
+.type-grid,
+.template-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
@@ -963,6 +1123,7 @@ onMounted(loadReports)
 
 .quick-btn,
 .type-card,
+.template-card,
 .ghost-btn,
 .primary-btn,
 .send-btn,
@@ -973,7 +1134,8 @@ onMounted(loadReports)
 }
 
 .quick-btn,
-.type-card {
+.type-card,
+.template-card {
   height: 36px;
   border: 1px solid #e5e8f0;
   border-radius: 9px;
@@ -984,7 +1146,8 @@ onMounted(loadReports)
 }
 
 .quick-btn.active,
-.type-card.active {
+.type-card.active,
+.template-card.active {
   border-color: #4f6bff;
   background: #eef2ff;
   color: #3154e7;
@@ -997,6 +1160,37 @@ onMounted(loadReports)
   align-items: center;
   justify-content: center;
   gap: 4px;
+}
+
+.template-grid {
+  grid-template-columns: 1fr;
+}
+
+.template-card {
+  height: auto;
+  min-height: 64px;
+  padding: 10px 12px;
+  text-align: left;
+}
+
+.template-card strong {
+  display: block;
+  color: #1f2937;
+  font-size: 13px;
+  line-height: 1.3;
+}
+
+.template-card span {
+  display: block;
+  margin-top: 5px;
+  color: #8a93a6;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.template-card.active strong {
+  color: #3154e7;
 }
 
 .full-picker,
@@ -1465,6 +1659,114 @@ onMounted(loadReports)
   font-size: 14px;
 }
 
+.structured-report {
+  display: grid;
+  gap: 14px;
+}
+
+.summary-section {
+  border: 1px solid #edf0f6;
+  border-radius: 14px;
+  background: #fbfcff;
+  padding: 15px;
+}
+
+.summary-section header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.summary-section header span {
+  min-width: 44px;
+  height: 24px;
+  padding: 0 9px;
+  border-radius: 999px;
+  background: #eef2ff;
+  color: #3154e7;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.summary-section:nth-child(2) header span {
+  background: #fff7ed;
+  color: #ea580c;
+}
+
+.summary-section:nth-child(3) header span {
+  background: #ecfdf5;
+  color: #059669;
+}
+
+.summary-section h4 {
+  margin: 0;
+  color: #111827;
+  font-size: 15px;
+}
+
+.summary-section ol,
+.summary-section ul {
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 9px;
+}
+
+.summary-section li {
+  list-style: none;
+  position: relative;
+  padding: 10px 12px 10px 36px;
+  border: 1px solid #edf0f6;
+  border-radius: 10px;
+  background: #fff;
+  color: #334155;
+  line-height: 1.55;
+}
+
+.summary-section ol {
+  counter-reset: reportItem;
+}
+
+.summary-section ol li {
+  counter-increment: reportItem;
+}
+
+.summary-section ol li::before,
+.summary-section ul li::before {
+  position: absolute;
+  left: 12px;
+  top: 10px;
+  width: 18px;
+  height: 18px;
+  border-radius: 6px;
+  background: #eef2ff;
+  color: #3154e7;
+  display: grid;
+  place-items: center;
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.summary-section ol li::before {
+  content: counter(reportItem);
+}
+
+.summary-section ul li::before {
+  content: "";
+}
+
+.summary-section:nth-child(2) ul li::before {
+  background: #fff7ed;
+}
+
+.summary-section:nth-child(3) ul li::before {
+  background: #ecfdf5;
+}
+
 .report-body :deep(h1) {
   margin: 18px 0 10px;
   color: #111827;
@@ -1648,6 +1950,7 @@ onMounted(loadReports)
   .split-row,
   .quick-grid,
   .type-grid,
+  .template-grid,
   .snapshot-row {
     grid-template-columns: 1fr;
   }

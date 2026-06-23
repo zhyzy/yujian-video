@@ -2873,6 +2873,33 @@ app.post('/api/ai-reports/generate', async (req, res) => {
   }
 });
 
+app.post('/api/ai-reports/chat', authRequired, async (req, res) => {
+  res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
+  res.setHeader('Cache-Control', 'no-cache, no-transform');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders?.();
+
+  const writeEvent = (event, data) => {
+    res.write(`event: ${event}\n`);
+    res.write(`data: ${JSON.stringify(data)}\n\n`);
+  };
+
+  try {
+    const reply = await aiService.generateChatReply(db, req.body || {});
+    const chunks = String(reply || '').match(/.{1,8}/gs) || ['收到'];
+    for (const chunk of chunks) {
+      writeEvent('chunk', { text: chunk });
+      await new Promise(resolve => setTimeout(resolve, 28));
+    }
+    writeEvent('done', { ok: true });
+    res.end();
+  } catch (err) {
+    logger.error('[ai-report-chat] 回复失败:', err);
+    writeEvent('error', { message: err.message || 'AI 对话失败' });
+    res.end();
+  }
+});
+
 app.post('/api/ai-reports/manual', (req, res) => {
   try {
     const type = req.body.type || 'daily';
