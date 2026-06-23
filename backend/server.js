@@ -2818,6 +2818,10 @@ app.get('/api/ai-reports', (req, res) => {
   res.json(success({ list: reports, total, page: parseInt(page), pageSize: parseInt(pageSize) }));
 });
 
+app.get('/api/ai-reports/status', authRequired, (req, res) => {
+  res.json(success(aiService.getStatus()));
+});
+
 app.post('/api/ai-reports/generate', async (req, res) => {
   const type = req.body.type || 'daily';
   let periodStart = req.body.periodStart;
@@ -2885,17 +2889,33 @@ app.post('/api/ai-reports/chat', authRequired, async (req, res) => {
   };
 
   try {
-    const reply = await aiService.generateChatReply(db, req.body || {});
-    const chunks = String(reply || '').match(/.{1,8}/gs) || ['收到'];
-    for (const chunk of chunks) {
-      writeEvent('chunk', { text: chunk });
-      await new Promise(resolve => setTimeout(resolve, 28));
+    if (aiService.isConfigured()) {
+      writeEvent('meta', { mode: 'ai', status: aiService.getStatus() });
+      const messages = aiService.buildChatMessages(db, req.body || {});
+      const fullText = await aiService.chatStream(messages, 0.35, (text) => {
+        writeEvent('chunk', { text });
+      });
+      if (!fullText) writeEvent('chunk', { text: '我已收到，请继续补充更具体的工作事项。' });
+    } else {
+      writeEvent('meta', { mode: 'local', status: aiService.getStatus() });
+      const reply = await aiService.generateChatReply(db, req.body || {});
+      const chunks = String(reply || '').match(/.{1,4}/gs) || ['收到'];
+      for (const chunk of chunks) {
+        writeEvent('chunk', { text: chunk });
+        await new Promise(resolve => setTimeout(resolve, 28));
+      }
     }
     writeEvent('done', { ok: true });
     res.end();
   } catch (err) {
     logger.error('[ai-report-chat] 回复失败:', err);
-    writeEvent('error', { message: err.message || 'AI 对话失败' });
+    const reply = aiService.localChatReply(req.body?.message, req.body?.userContext || {});
+    writeEvent('meta', { mode: 'fallback', status: aiService.getStatus(), reason: err.message });
+    for (const chunk of String(reply).match(/.{1,4}/gs) || ['收到']) {
+      writeEvent('chunk', { text: chunk });
+      await new Promise(resolve => setTimeout(resolve, 28));
+    }
+    writeEvent('done', { ok: true, fallback: true });
     res.end();
   }
 });

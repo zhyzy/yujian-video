@@ -1,6 +1,6 @@
 const fetchImpl = globalThis.fetch;
 
-const VOLCANO_ARK_API_URL = process.env.VOLCANO_ARK_API_URL || 'https://ark.cn-beijing.volces.com/api/coding/v3';
+const VOLCANO_ARK_API_URL = process.env.VOLCANO_ARK_API_URL || 'https://ark.cn-beijing.volces.com/api/v3';
 const MODEL = process.env.VOLCANO_ARK_MODEL || 'deepseek-v4-flash';
 const AI_TIMEOUT_MS = Number(process.env.VOLCANO_ARK_TIMEOUT_MS || 45000);
 const PROMPT_VERSION = 'ai-report-v2-fullsite-20260614';
@@ -42,11 +42,16 @@ const isUsefulDailyNote = (value = '') => {
   return /[\d一二三四五六七八九十]|完成|发布|剪辑|拍摄|上传|对接|跟进|协调|未完成|问题|准备|安排|数据|账号|城市|明日|今日/.test(text);
 };
 
+const normalizeApiUrl = (value = '') => String(value || '')
+  .replace(/\/$/, '')
+  .replace(/\/api\/coding\/v3$/, '/api/v3');
+
 class AIService {
   constructor() {
-    this.apiUrl = VOLCANO_ARK_API_URL.replace(/\/$/, '');
+    this.apiUrl = normalizeApiUrl(VOLCANO_ARK_API_URL);
     this.apiKey = process.env.VOLCANO_ARK_API_KEY || '';
     this.model = MODEL;
+    this.lastError = '';
   }
 
   isConfigured() {
@@ -61,29 +66,109 @@ class AIService {
     const fetch = requireFetch();
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), AI_TIMEOUT_MS);
-    const response = await fetch(`${this.apiUrl}/chat/completions`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${this.apiKey}`
-      },
-      body: JSON.stringify({
-        model: this.model,
-        messages,
-        temperature,
-        stream: false
-      }),
-      signal: controller.signal
-    });
-    clearTimeout(timer);
+    try {
+      const response = await fetch(`${this.apiUrl}/chat/completions`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${this.apiKey}`
+        },
+        body: JSON.stringify({
+          model: this.model,
+          messages,
+          temperature,
+          stream: false
+        }),
+        signal: controller.signal
+      });
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`AI API 调用失败：${response.status} ${errorText}`);
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`AI API 调用失败：${response.status} ${errorText}`);
+      }
+
+      const data = await response.json();
+      this.lastError = '';
+      return data.choices?.[0]?.message?.content || '';
+    } catch (err) {
+      this.lastError = err.message;
+      throw err;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  async chatStream(messages, temperature = 0.35, onDelta = () => {}) {
+    if (!this.isConfigured()) {
+      throw new Error('AI 服务未配置，请设置 VOLCANO_ARK_API_KEY');
     }
 
-    const data = await response.json();
-    return data.choices?.[0]?.message?.content || '';
+    const fetch = requireFetch();
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), AI_TIMEOUT_MS);
+    try {
+      const response = await fetch(`${this.apiUrl}/chat/completions`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${this.apiKey}`
+        },
+        body: JSON.stringify({
+          model: this.model,
+          messages,
+          temperature,
+          stream: true
+        }),
+        signal: controller.signal
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`AI API 调用失败：${response.status} ${errorText}`);
+      }
+
+      let fullText = '';
+      let buffer = '';
+      for await (const chunk of response.body) {
+        buffer += Buffer.from(chunk).toString('utf8');
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+        for (const rawLine of lines) {
+          const line = rawLine.trim();
+          if (!line.startsWith('data:')) continue;
+          const dataText = line.replace(/^data:\s*/, '');
+          if (!dataText || dataText === '[DONE]') continue;
+          let data;
+          try {
+            data = JSON.parse(dataText);
+          } catch {
+            continue;
+          }
+          const delta = data.choices?.[0]?.delta?.content || '';
+          if (delta) {
+            fullText += delta;
+            onDelta(delta);
+          }
+        }
+      }
+      this.lastError = '';
+      return fullText;
+    } catch (err) {
+      this.lastError = err.message;
+      throw err;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  getStatus() {
+    return {
+      configured: this.isConfigured(),
+      provider: 'volcano-ark-openai-compatible',
+      model: this.model,
+      baseUrl: this.apiUrl,
+      lastError: this.lastError
+    };
   }
 
   collectReportData(db, startDate, endDate, type = 'daily') {
@@ -684,9 +769,43 @@ ${coordinate.length ? coordinate.join('\n') : '无'}`;
     return this.localChatReply(message, context);
   }
 
+  buildChatMessages(db, payload = {}) {
+    const message = String(payload.message || '').trim();
+    const context = payload.userContext || {};
+    const periodStart = payload.periodStart || dayjs().format('YYYY-MM-DD');
+    const periodEnd = payload.periodEnd || periodStart;
+    const data = this.collectReportData(db, periodStart, periodEnd, payload.type || 'daily');
+    data.meta.userContext = context;
+    return [
+      {
+        role: 'system',
+        content: [
+          '你是遇见自媒体运营系统里的日报助手。',
+          '你必须像真实运营助理一样主动回答问题，而不是只说“收到”。',
+          '如果用户只是寒暄，简短回应并引导他补充今日完成、未完成、需协调事项。',
+          '如果用户问系统数据，要基于摘要回答。',
+          '如果用户补充工作事实，要明确告诉他会放入哪个日报模块。',
+          '回复控制在 80 字以内，口语、直接、有帮助。'
+        ].join('\n')
+      },
+      {
+        role: 'user',
+        content: `用户当前输入：${message}\n\n日报配置：${safeJson(context)}\n\n系统数据摘要：${safeJson(data.summary)}`
+      }
+    ];
+  }
+
   async generateOperationalReport(db, type, startDate, endDate, options = {}) {
     const rawData = this.collectReportData(db, startDate, endDate, type);
     rawData.meta.userContext = options.userContext || {};
+    if (rawData.meta.userContext.reportStyle === 'work_summary') {
+      rawData.meta.aiMode = this.isConfigured() ? 'ai-chat-enabled-structured-report' : 'local-structured-report';
+      return {
+        content: this.localWorkSummaryReport(rawData),
+        rawData,
+        promptTemplate: `${PROMPT_VERSION}-work-summary`
+      };
+    }
     const prompt = this.buildPrompt(rawData);
     let content;
 

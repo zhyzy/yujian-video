@@ -181,9 +181,9 @@
           <header class="panel-title chat-head">
             <div>
               <h2>AI 对话</h2>
-              <p>补充人工信息，AI 会和系统数据一起整理</p>
+              <p>{{ chatModeText }}</p>
             </div>
-            <span>已使用 {{ dailyUsed }}/50 次</span>
+            <span>{{ chatStatusText }} · 已使用 {{ dailyUsed }}/50 次</span>
           </header>
 
           <div class="chat-body">
@@ -466,6 +466,7 @@ const activeContent = ref('')
 const activeRawData = ref(null)
 const generating = ref(false)
 const chatting = ref(false)
+const chatMode = ref('checking')
 const generationStepIndex = ref(0)
 const dailyUsed = ref(12)
 const inputMessage = ref('')
@@ -616,6 +617,18 @@ const typeIcon = (type) => ({
 const activeMeta = computed(() => activeContent.value ? `${form.periodStart} 至 ${form.periodEnd}` : '')
 const latestGeneratedText = computed(() => activeRawData.value?.meta?.generatedAt ? `最新生成：${dayjs(activeRawData.value.meta.generatedAt).format('HH:mm')}` : '等待生成报告')
 const generationTitle = computed(() => generationSteps[generationStepIndex.value] || '正在生成报告')
+const chatModeText = computed(() => {
+  if (chatMode.value === 'ai') return '大模型已连接，支持真实流式回复'
+  if (chatMode.value === 'fallback') return '大模型连接异常，当前使用本地辅助回复'
+  if (chatMode.value === 'local') return '大模型未配置，当前使用本地辅助回复'
+  return '正在检测 AI 连接状态'
+})
+const chatStatusText = computed(() => {
+  if (chatMode.value === 'ai') return 'AI 已连接'
+  if (chatMode.value === 'fallback') return 'AI 降级'
+  if (chatMode.value === 'local') return '本地模式'
+  return '检测中'
+})
 
 const reportSummary = computed(() => activeRawData.value?.summary || null)
 const detailData = computed(() => activeRawData.value?.details || {})
@@ -783,6 +796,7 @@ const streamChatReply = async (payload, targetMessage) => {
       const dataLine = eventText.match(/^data:\s*(.+)$/m)?.[1]
       if (!dataLine) continue
       const data = JSON.parse(dataLine)
+      if (eventType === 'meta') chatMode.value = data.mode || chatMode.value
       if (eventType === 'chunk') targetMessage.content += data.text || ''
       if (eventType === 'error') throw new Error(data.message || 'AI 对话失败')
     }
@@ -840,10 +854,25 @@ const loadReports = async () => {
   try {
     const data = await getAIReports({ page: 1, pageSize: 12 })
     reports.value = data.list || []
-    if (reports.value.length && !activeContent.value) selectReport(reports.value[0])
   } catch (error) {
     reports.value = []
     ElMessage.error(error?.message || '历史报告加载失败')
+  }
+}
+
+const loadAIStatus = async () => {
+  const token = localStorage.getItem('auth_token')
+  try {
+    const response = await fetch('/api/ai-reports/status', {
+      headers: {
+        ...(token ? { Authorization: `Bearer ${token}` } : {})
+      }
+    })
+    const payload = await response.json()
+    const status = payload?.data || {}
+    chatMode.value = status.configured ? 'ai' : 'local'
+  } catch {
+    chatMode.value = 'fallback'
   }
 }
 
@@ -851,7 +880,7 @@ const generateReport = async () => {
   generating.value = true
   generationStepIndex.value = 0
   activeId.value = ''
-  activeContent.value = '# 正在生成日报\n\n系统正在整理数据与对话补充，请稍等。'
+  activeContent.value = '【生成中工作汇报】\n1、系统正在整理数据与对话补充，请稍等。\n【未完成工作】\n正在计算\n【需协调工作】\n正在计算'
   clearInterval(generationTimer)
   generationTimer = setInterval(() => {
     if (generationStepIndex.value < generationSteps.length - 1) generationStepIndex.value += 1
@@ -982,7 +1011,10 @@ const exportWord = () => {
   URL.revokeObjectURL(url)
 }
 
-onMounted(loadReports)
+onMounted(() => {
+  loadAIStatus()
+  loadReports()
+})
 </script>
 
 <style scoped>
