@@ -91,6 +91,7 @@
             </div>
             <div class="account-right">
               <span class="status-dot" :class="acc.status === 'active' ? 'on' : 'off'"></span>
+              <button v-if="acc.qrcode_url" class="mini-btn" title="查看二维码" @click="openQrcode(acc)"><el-icon><Picture /></el-icon></button>
               <button class="mini-btn" @click="editAccount(city, acc)"><el-icon><EditPen /></el-icon></button>
               <button class="mini-btn danger" @click="removeAccount(city, acc)"><el-icon><Delete /></el-icon></button>
             </div>
@@ -192,6 +193,23 @@
             <label>账号链接 / 主页地址（可选）</label>
             <input v-model="accountForm.url" class="text-input" placeholder="https://..." />
           </div>
+          <div class="form-field">
+            <label>账号二维码（可选）</label>
+            <div class="qrcode-uploader">
+              <div v-if="accountForm.qrcode_url" class="qrcode-preview">
+                <img :src="accountForm.qrcode_url" alt="二维码" />
+                <div class="qrcode-actions">
+                  <button class="mini-btn" @click="removeQrcode"><el-icon><Close /></el-icon> 移除</button>
+                </div>
+              </div>
+              <label v-else class="qrcode-upload-box" for="qrcode-upload">
+                <el-icon><Upload /></el-icon>
+                <span>点击上传二维码</span>
+                <span class="hint">支持 png、jpg、webp，最大 5MB</span>
+                <input id="qrcode-upload" type="file" accept="image/*" hidden @change="handleQrcodeUpload" />
+              </label>
+            </div>
+          </div>
           <div class="form-row two">
             <div class="form-field">
               <label>状态</label>
@@ -247,6 +265,38 @@
       </div>
     </div>
 
+    <!-- 二维码预览弹窗 -->
+    <div class="dialog-overlay" v-if="showQrcodeDialog" @click.self="closeQrcodeDialog">
+      <div class="dialog-card qrcode-card">
+        <div class="dialog-head">
+          <div>
+            <h3>{{ qrcodeAccount?.name || '账号二维码' }}</h3>
+            <p>扫码可直接访问账号</p>
+          </div>
+          <button class="icon-close" @click="closeQrcodeDialog"><el-icon><Close /></el-icon></button>
+        </div>
+        <div class="dialog-body">
+          <div class="qrcode-dialog-img">
+            <img :src="qrcodeAccount?.qrcode_url" alt="账号二维码" />
+          </div>
+          <div class="qrcode-dialog-info">
+            <div class="qrcode-info-row">
+              <span class="qrcode-info-label">平台</span>
+              <span class="qrcode-info-value">{{ qrcodeAccount?.platform_label || qrcodeAccount?.platform }}</span>
+            </div>
+            <div class="qrcode-info-row">
+              <span class="qrcode-info-label">账号名称</span>
+              <span class="qrcode-info-value">{{ qrcodeAccount?.name }}</span>
+            </div>
+            <div v-if="qrcodeAccount?.url" class="qrcode-info-row">
+              <span class="qrcode-info-label">主页链接</span>
+              <a :href="qrcodeAccount.url" target="_blank" class="qrcode-info-value link">{{ qrcodeAccount.url }}</a>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
   </div>
 </template>
 
@@ -255,18 +305,20 @@ import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   Plus, EditPen, Close, Delete, LocationFilled, UserFilled, DataAnalysis,
-  Warning, Phone, Collection
+  Warning, Phone, Collection, Picture, Upload
 } from '@element-plus/icons-vue'
 import IconFont from '@/components/IconFont.vue'
-import { createAccount, updateAccount, deleteAccount, createCity, getCities, updateCity, deleteCity } from '@/api'
+import { createAccount, updateAccount, deleteAccount, createCity, getCities, updateCity, deleteCity, uploadQrcode } from '@/api'
 import ConfigurablePageRenderer from '@/layout-builder/ConfigurablePageRenderer.vue'
 import { layoutModuleCatalog } from '@/layout-builder/moduleCatalog'
 import { useLayoutBindings } from '@/layout-builder/layoutBindings'
+import { usePageSearch } from '@/composables/usePageSearch'
 
 const cityAccountsLayoutModules = layoutModuleCatalog.cityAccounts
 const { bindings: layoutBindings } = useLayoutBindings('cityAccounts')
 const list = ref([])
 const filter = reactive({ status: '', platform: '' })
+const { matchesPageSearch } = usePageSearch()
 
 // 预定义平台
 const builtInPlatforms = [
@@ -295,13 +347,21 @@ const needFix = computed(() => list.value.filter(c => c.status === 'pending' || 
 const filteredCities = computed(() => list.value
   .filter(city => filter.status ? city.status === filter.status : true)
   .map(city => {
-    if (!filter.platform) return city
+    const cityMatched = matchesPageSearch(city.name, city.contact, city.phone, city.remark, statusLabel(city.status))
+    let accounts = city.accounts || []
+    if (filter.platform) accounts = accounts.filter(account => account.platform === filter.platform)
+    if (!cityMatched) {
+      accounts = accounts.filter(account => matchesPageSearch(
+        account.name, account.platform, account.platform_label, account.url, account.type_note, account.remark
+      ))
+    }
     return {
       ...city,
-      accounts: (city.accounts || []).filter(account => account.platform === filter.platform)
+      accounts,
+      _searchMatched: cityMatched || accounts.length > 0
     }
   })
-  .filter(city => !filter.platform || city.accounts.length)
+  .filter(city => city._searchMatched && (!filter.platform || city.accounts.length))
 )
 
 const normalizeStatus = (value) => ({ inactive: 'paused', all: '' }[value] || value || '')
@@ -428,9 +488,9 @@ const removeCity = (city) => {
 const showAccountDialog = ref(false)
 const accountCity = ref(null)
 const editingAccount = ref(null)
-const accountForm = reactive({ id: '', platform: 'kuaishou', platform_label: '', name: '', url: '', status: 'active', type_note: '' })
+const accountForm = reactive({ id: '', platform: 'kuaishou', platform_label: '', name: '', url: '', status: 'active', type_note: '', qrcode_url: '' })
 
-const emptyAccountForm = () => ({ id: '', platform: 'kuaishou', platform_label: '', name: '', url: '', status: 'active', type_note: '' })
+const emptyAccountForm = () => ({ id: '', platform: 'kuaishou', platform_label: '', name: '', url: '', status: 'active', type_note: '', qrcode_url: '' })
 
 const addAccount = (city) => {
   accountCity.value = city
@@ -466,35 +526,31 @@ const saveAccount = async () => {
   }
   try {
     if (editingAccount.value) {
-      const payload = { ...accountForm, type: 'city', city_id: accountCity.value.id }
-      await updateAccount(editingAccount.value.id, payload)
-      Object.assign(editingAccount.value, payload)
-      ElMessage.success('账号已更新')
-    } else {
-      const payload = { ...accountForm, type: 'city', city_id: accountCity.value.id }
-      try {
-        const created = await createAccount(payload)
-        payload.id = created?.id || 'acc_' + Date.now()
-      } catch {
-        payload.id = 'acc_' + Date.now()
+      const payload = {
+        ...accountForm,
+        platform_account: accountForm.url || '',
+        account_type: accountForm.type_note || '',
+        type: 'city',
+        city_id: accountCity.value.id
       }
-      if (!accountCity.value.accounts) accountCity.value.accounts = []
-      accountCity.value.accounts.push(payload)
-      ElMessage.success('账号已添加')
-    }
-    closeAccountDialog()
-  } catch {
-    // fallback
-    if (editingAccount.value) {
-      Object.assign(editingAccount.value, { ...accountForm, type: 'city', city_id: accountCity.value.id })
+      await updateAccount(editingAccount.value.id, payload)
+      await loadData()
       ElMessage.success('账号已更新')
     } else {
-      const payload = { ...accountForm, type: 'city', city_id: accountCity.value.id, id: 'acc_' + Date.now() }
-      if (!accountCity.value.accounts) accountCity.value.accounts = []
-      accountCity.value.accounts.push(payload)
+      const payload = {
+        ...accountForm,
+        platform_account: accountForm.url || '',
+        account_type: accountForm.type_note || '',
+        type: 'city',
+        city_id: accountCity.value.id
+      }
+      await createAccount(payload)
+      await loadData()
       ElMessage.success('账号已添加')
     }
     closeAccountDialog()
+  } catch (error) {
+    ElMessage.error(error?.response?.data?.message || error?.message || '账号保存失败，请重试')
   }
 }
 
@@ -526,6 +582,57 @@ const saveCustomPlatform = () => {
   customPlatforms.value.push({ key, label, color: customPlatformForm.color })
   ElMessage.success(`已添加平台「${label}」，可在账号表单中选择`)
   closePlatformDialog()
+}
+
+// === 二维码 ===
+const showQrcodeDialog = ref(false)
+const qrcodeAccount = ref(null)
+const openQrcode = (acc) => {
+  qrcodeAccount.value = acc
+  showQrcodeDialog.value = true
+}
+const closeQrcodeDialog = () => {
+  showQrcodeDialog.value = false
+  qrcodeAccount.value = null
+}
+
+const handleQrcodeUpload = async (e) => {
+  const file = e.target.files?.[0]
+  if (!file) return
+  if (!file.type.startsWith('image/')) {
+    ElMessage.warning('请上传图片文件')
+    e.target.value = ''
+    return
+  }
+  if (file.size > 5 * 1024 * 1024) {
+    ElMessage.warning('图片大小不能超过 5MB')
+    e.target.value = ''
+    return
+  }
+  try {
+    const reader = new FileReader()
+    reader.onload = async () => {
+      try {
+        const res = await uploadQrcode({
+          filename: file.name,
+          mime: file.type,
+          data: reader.result
+        })
+        accountForm.qrcode_url = res.url
+        ElMessage.success('二维码上传成功')
+      } catch {
+        ElMessage.error('上传失败，请重试')
+      }
+    }
+    reader.readAsDataURL(file)
+  } catch {
+    ElMessage.error('读取文件失败')
+  }
+  e.target.value = ''
+}
+
+const removeQrcode = () => {
+  accountForm.qrcode_url = ''
 }
 
 onMounted(loadData)
@@ -668,6 +775,86 @@ watch(layoutBindings, (value) => applyLayoutBindings(value), { deep: true, immed
 
 .dialog-foot { padding: 14px 24px; display: flex; justify-content: flex-end; gap: 10px; border-top: 1px solid #f1f5f9; background: #fafbfc; }
 .btn-primary:disabled { opacity: 0.55; cursor: not-allowed; }
+
+/* 二维码上传 */
+.qrcode-uploader { width: 100%; }
+.qrcode-upload-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  padding: 28px 20px;
+  border: 2px dashed #c7d2fe;
+  border-radius: 12px;
+  background: #faf5ff;
+  cursor: pointer;
+  transition: all 0.18s;
+  color: #6366f1;
+}
+.qrcode-upload-box:hover {
+  border-color: #6366f1;
+  background: #f5f3ff;
+  transform: translateY(-1px);
+}
+.qrcode-upload-box .el-icon { font-size: 28px; }
+.qrcode-upload-box span { font-size: 13px; font-weight: 600; }
+.qrcode-upload-box .hint { font-size: 11.5px; color: #94a3b8; font-weight: 400; }
+.qrcode-preview {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 16px;
+  border: 1px solid #e0e7ff;
+  border-radius: 12px;
+  background: #fafbff;
+}
+.qrcode-preview img {
+  width: 96px;
+  height: 96px;
+  object-fit: contain;
+  border-radius: 8px;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+}
+.qrcode-actions { display: flex; flex-direction: column; gap: 8px; }
+
+/* 二维码预览弹窗 */
+.qrcode-card { width: 360px; }
+.qrcode-dialog-img {
+  display: flex;
+  justify-content: center;
+  padding: 20px 0;
+}
+.qrcode-dialog-img img {
+  width: 240px;
+  height: 240px;
+  object-fit: contain;
+  border-radius: 12px;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.08);
+}
+.qrcode-dialog-info {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px;
+  background: #f8fafc;
+  border-radius: 10px;
+}
+.qrcode-info-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+}
+.qrcode-info-label { color: #6b7280; font-weight: 500; }
+.qrcode-info-value { color: #0f172a; font-weight: 600; text-align: right; word-break: break-all; }
+.qrcode-info-value.link { color: #6366f1; text-decoration: none; }
+.qrcode-info-value.link:hover { color: #4338ca; text-decoration: underline; }
 
 @media (max-width: 900px) {
   .hero { flex-direction: column; align-items: flex-start; gap: 14px; }

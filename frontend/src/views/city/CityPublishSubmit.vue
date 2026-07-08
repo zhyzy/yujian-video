@@ -17,77 +17,63 @@
 
       <template #summary-row>
         <section class="summary-row">
-          <div class="sum-card"><strong>{{ todayRows.length }}</strong><span>今日记录</span></div>
-          <div class="sum-card green"><strong>{{ publishedCount }}</strong><span>已提交</span></div>
-          <div class="sum-card amber"><strong>{{ totalPlay }}</strong><span>播放量</span></div>
-          <div class="sum-card cyan"><strong>{{ totalDeals }}</strong><span>成交单数</span></div>
-          <div class="sum-card money"><strong>¥{{ totalRevenue }}</strong><span>成交金额</span></div>
+          <div class="sum-card"><strong>{{ taskDateRows.length }}</strong><span>当日下发</span></div>
+          <div class="sum-card green"><strong>{{ publishedCount }}</strong><span>当日发布</span></div>
+          <div class="sum-card amber"><strong>{{ pendingCount }}</strong><span>待填报</span></div>
         </section>
       </template>
 
       <template #record-grid>
-        <section class="record-grid" v-loading="loading">
-          <article v-for="row in todayRows" :key="row.id" class="record-card">
-            <div class="card-head">
-              <div>
-                <span class="platform">{{ platformLabel(row.publish_platform) }}</span>
-                <h2>{{ row.account_name || row.publish_account_name || '城市账号' }}</h2>
-              </div>
-              <el-tag :type="row.status === 'published' ? 'success' : 'warning'">{{ row.status === 'published' ? '已提交' : '待填报' }}</el-tag>
-            </div>
-
-            <div class="link-actions">
-              <template v-if="row.publish_url">
-                <el-button class="btn-open" size="small" @click="openLink(row.publish_url)">
-                  <el-icon><Open /></el-icon>
-                  <span>打开发布</span>
-                </el-button>
-                <el-button class="btn-copy" size="small" @click="copyText(row.publish_url)">
-                  <el-icon><Link /></el-icon>
-                  <span>复制链接</span>
-                </el-button>
+        <section class="record-table-wrap" v-loading="loading">
+          <el-table :data="todayRows" border stripe class="record-table" v-empty="!loading && !todayRows.length">
+            <el-table-column prop="date" label="日期" width="110" align="center" />
+            <el-table-column prop="publish_platform" label="平台" width="100" align="center">
+              <template #default="{ row }">
+                <span class="platform-badge" :style="{ background: platformBg(row.publish_platform || row.platform) }">
+                  {{ platformLabel(row.publish_platform || row.platform) }}
+                </span>
               </template>
-              <template v-else-if="row.platform_account">
-                <el-button class="btn-open" size="small" @click="openLink(row.platform_account)">
-                  <el-icon><Open /></el-icon>
-                  <span>账号主页</span>
-                </el-button>
-                <el-button class="btn-copy" size="small" @click="copyText(row.platform_account)">
-                  <el-icon><Link /></el-icon>
-                  <span>复制主页</span>
-                </el-button>
+            </el-table-column>
+            <el-table-column prop="account_name" label="账号" width="160" />
+            <el-table-column prop="video_title" label="视频标题" min-width="200">
+              <template #default="{ row }">
+                <span class="title-text">{{ row.video_title || row.material_name || '城市下发任务' }}</span>
               </template>
-              <span v-else class="muted-text"><IconFont name="link" :fallback="Link" />暂无账号主页</span>
-            </div>
-
-            <div class="metrics">
-              <span><b>{{ row.play_count || 0 }}</b>播放</span>
-              <span><b>{{ row.like_count || 0 }}</b>点赞</span>
-              <span><b>{{ row.comment_count || 0 }}</b>评论</span>
-              <span><b>{{ row.deal_count || 0 }}</b>成交</span>
-              <span><b>¥{{ row.deal_amount || 0 }}</b>金额</span>
-              <span><b>{{ row.favorite_count || 0 }}</b>收藏</span>
-            </div>
-
-            <div v-if="row.publish_screenshot" class="screenshot">
-              <img :src="mediaUrl(row.publish_screenshot)" alt="发布截图">
-            </div>
-
-            <div class="card-foot">
-              <span>{{ row.actual_publish_time || row.date }}</span>
-              <div class="card-actions">
+            </el-table-column>
+            <el-table-column prop="status" label="状态" width="100" align="center">
+              <template #default="{ row }">
+                <el-tag :type="row.status === 'published' ? 'success' : 'warning'" size="small">
+                  {{ row.status === 'published' ? '已提交' : '待填报' }}
+                </el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column prop="publish_url" label="发布链接" min-width="200">
+              <template #default="{ row }">
+                <template v-if="row.publish_url">
+                  <el-button class="btn-link" size="small" @click="openLink(row.publish_url)">查看链接</el-button>
+                </template>
+                <span v-else class="muted">未填写</span>
+              </template>
+            </el-table-column>
+            <el-table-column prop="actual_publish_time" label="发布时间" width="170" align="center">
+              <template #default="{ row }">
+                <span>{{ row.actual_publish_time || '-' }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="操作" width="200" align="center" fixed="right">
+              <template #default="{ row }">
                 <el-button class="btn-edit" size="small" @click="openEdit(row)">
                   <el-icon><EditPen /></el-icon>
-                  <span>编辑发布</span>
+                  <span>编辑填报</span>
                 </el-button>
-                <el-button class="btn-data" size="small" type="primary" @click="goToDataEntry(row)">
+                <el-button v-if="row.status === 'published'" class="btn-data" size="small" type="primary" @click="goToDataEntry(row)">
                   <el-icon><DataAnalysis /></el-icon>
                   <span>填写数据</span>
                 </el-button>
-              </div>
-            </div>
-          </article>
-          <el-empty v-if="!loading && !todayRows.length" description="今天暂无发布记录，点击右上角新增" />
+              </template>
+            </el-table-column>
+          </el-table>
+          <el-empty v-if="!loading && !todayRows.length" description="该日期暂无发布记录，点击右上角新增" />
         </section>
       </template>
     </ConfigurablePageRenderer>
@@ -104,8 +90,8 @@
         <div class="form-section">
           <div class="form-section-title">基本信息</div>
           <el-form-item label="关联任务">
-            <el-select v-model="form.id" clearable filterable placeholder="可选择总部下发任务" style="width: 100%" @change="selectTask">
-              <el-option v-for="task in tasks" :key="task.id" :label="`${task.date} · ${platformLabel(task.publish_platform || task.platform)} · ${task.video_title || '城市下发任务'}`" :value="task.id" />
+            <el-select v-model="form.id" clearable filterable placeholder="可选择当前日期的总部下发任务" style="width: 100%" @change="selectTask">
+              <el-option v-for="task in taskDateRows" :key="task.id" :label="`${task.date} · ${platformLabel(task.publish_platform || task.platform)} · ${task.video_title || '城市下发任务'}`" :value="task.id" />
             </el-select>
           </el-form-item>
           <div class="form-grid">
@@ -148,7 +134,14 @@
         <div class="form-section">
           <div class="form-section-title">其他信息</div>
           <el-form-item label="发布时间">
-            <el-date-picker v-model="form.actual_publish_time" type="datetime" value-format="YYYY-MM-DD HH:mm:ss" style="width: 100%" />
+            <el-date-picker
+              v-model="form.actual_publish_time"
+              type="datetime"
+              value-format="YYYY-MM-DD HH:mm:ss"
+              style="width: 100%"
+              :disabled-date="disabledActualPublishDate"
+            />
+            <div class="field-tip">发布时间日期必须和下发任务日期一致，避免填报到其他日期任务中。</div>
           </el-form-item>
           <el-form-item label="备注"><el-input v-model="form.city_remark" type="textarea" :rows="2" placeholder="可填写备注信息" /></el-form-item>
         </div>
@@ -195,6 +188,10 @@ const currentUser = ref(userData)
 const autoOpenedTaskId = ref('')
 const form = reactive(emptyForm())
 
+if (route.query.date) {
+  currentDate.value = route.query.date
+}
+
 function emptyForm() {
   return {
     id: '',
@@ -205,24 +202,32 @@ function emptyForm() {
     publish_url: '',
     publish_screenshot: '',
     actual_publish_time: dayjs().format('YYYY-MM-DD HH:mm:ss'),
-    play_count: 0,
-    like_count: 0,
-    comment_count: 0,
-    deal_count: 0,
-    deal_amount: 0,
-    favorite_count: 0,
-    share_count: 0,
     city_remark: ''
   }
 }
 
-const todayRows = computed(() => tasks.value.filter(item => item.date === currentDate.value || item.actual_publish_time?.startsWith(currentDate.value)))
-const publishedCount = computed(() => todayRows.value.filter(item => item.status === 'published').length)
+const taskDateRows = computed(() => tasks.value.filter(item => item.date === currentDate.value))
+const actualPublishedRows = computed(() => tasks.value.filter(item =>
+  item.status === 'published' && String(item.actual_publish_time || item.published_at || '').startsWith(currentDate.value)
+))
+const todayRows = computed(() => {
+  const merged = [...taskDateRows.value, ...actualPublishedRows.value]
+  return [...new Map(merged.map(item => [String(item.id), item])).values()]
+})
+const publishedCount = computed(() => actualPublishedRows.value.length)
+const pendingCount = computed(() => taskDateRows.value.filter(item => item.status !== 'published').length)
 const totalPlay = computed(() => todayRows.value.reduce((sum, item) => sum + Number(item.play_count || 0), 0))
 const totalDeals = computed(() => todayRows.value.reduce((sum, item) => sum + Number(item.deal_count || 0), 0))
 const totalRevenue = computed(() => todayRows.value.reduce((sum, item) => sum + Number(item.deal_amount || 0), 0).toLocaleString('zh-CN'))
+const formTaskDate = computed(() => String(form.date || currentDate.value).slice(0, 10))
 
 const platformLabel = (value) => ({ kuaishou: '快手', weixin: '视频号', douyin: '抖音', xiaohongshu: '小红书' }[value] || '未选择')
+const platformBg = (p) => ({
+  douyin: 'linear-gradient(135deg, #0f172a, #334155)',
+  kuaishou: 'linear-gradient(135deg, #ff6633, #ff9500)',
+  weixin: 'linear-gradient(135deg, #07c160, #10b981)',
+  xiaohongshu: 'linear-gradient(135deg, #ff2442, #ef4444)'
+}[p] || 'linear-gradient(135deg, #6366f1, #8b5cf6)')
 const mediaUrl = (url) => resolveMediaUrl(url)
 const normalizeBoundDate = (value) => {
   if (!value) return ''
@@ -290,11 +295,18 @@ const handlePasteImage = async (event) => {
 const loadData = async () => {
   loading.value = true
   try {
-    const [taskData, accountData] = await Promise.all([
+    const [taskData, publishedData, accountData] = await Promise.all([
       getCityDistributions({ pageSize: 200, dateFrom: currentDate.value, dateTo: currentDate.value }),
+      getCityDistributions({
+        pageSize: 200,
+        actualDateFrom: currentDate.value,
+        actualDateTo: currentDate.value,
+        status: 'published'
+      }),
       getAccounts({ type: 'city', cityId: currentUser.value.city_id })
     ])
-    tasks.value = taskData.list || []
+    const mergedRows = [...(taskData.list || []), ...(publishedData.list || [])]
+    tasks.value = [...new Map(mergedRows.map(item => [String(item.id), item])).values()]
     accounts.value = accountData || []
     const taskId = route.query.taskId
     if (taskId && autoOpenedTaskId.value !== String(taskId) && !showDialog.value) {
@@ -315,18 +327,25 @@ const selectTask = (id) => {
 }
 
 const fillForm = (row = {}) => {
+  const taskDate = String(row.date || currentDate.value).slice(0, 10)
+  const defaultActualTime = `${taskDate} ${dayjs().format('HH:mm:ss')}`
   Object.assign(form, emptyForm(), {
     ...row,
     account_id: row.account_id || accounts.value[0]?.id || '',
     publish_platform: row.publish_platform || row.platform || 'kuaishou',
     publish_account_name: row.account_name || row.publish_account_name || accounts.value[0]?.name || '',
-    actual_publish_time: row.actual_publish_time || dayjs().format('YYYY-MM-DD HH:mm:ss')
+    actual_publish_time: row.actual_publish_time || defaultActualTime
   })
 }
 
 const openCreate = () => {
   editing.value = false
-  Object.assign(form, emptyForm(), { date: currentDate.value, account_id: accounts.value[0]?.id || '', publish_account_name: accounts.value[0]?.name || '' })
+  Object.assign(form, emptyForm(), {
+    date: currentDate.value,
+    account_id: accounts.value[0]?.id || '',
+    publish_account_name: accounts.value[0]?.name || '',
+    actual_publish_time: `${currentDate.value} ${dayjs().format('HH:mm:ss')}`
+  })
   showDialog.value = true
 }
 
@@ -341,8 +360,14 @@ const goToDataEntry = (row) => {
   router.push({ path: '/city/data-entry', query: { taskId: row.id } })
 }
 
+const disabledActualPublishDate = (date) => dayjs(date).format('YYYY-MM-DD') !== formTaskDate.value
+
 const saveForm = async () => {
   if (!form.publish_url) return ElMessage.warning('请填写发布链接')
+  if (!form.actual_publish_time) return ElMessage.warning('请选择发布时间')
+  if (String(form.actual_publish_time).slice(0, 10) !== formTaskDate.value) {
+    return ElMessage.warning(`发布时间日期必须与下发任务日期一致：${formTaskDate.value}`)
+  }
   saving.value = true
   try {
     const payload = { ...form, status: 'published', date: form.date || currentDate.value }
@@ -381,30 +406,47 @@ onMounted(loadData)
 .hero h1 { margin: 0 0 6px; font-size: 24px; color: #0f172a; }
 .hero p { margin: 0; color: #7b8497; font-size: 13px; }
 .hero-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.summary-row { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; }
+.summary-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
 .sum-card { padding: 18px; border-radius: 14px; background: #fff; border: 1px solid #eceff5; }
 .sum-card strong { display: block; font-size: 28px; color: #4f46e5; margin-bottom: 4px; }
 .sum-card.green strong { color: #059669; }
 .sum-card.amber strong { color: #d97706; }
-.sum-card.cyan strong { color: #0891b2; }
-.sum-card.money strong { color: #4f46e5; }
 .sum-card span { color: #7b8497; font-size: 13px; }
-.record-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 14px; min-height: 180px; }
-.record-card { display: flex; flex-direction: column; gap: 14px; padding: 18px; border: 1px solid #e5e7eb; border-radius: 14px; background: #fff; box-shadow: 0 8px 24px rgba(15,23,42,.04); }
-.card-head, .card-foot { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
-.platform { display: inline-flex; padding: 3px 9px; border-radius: 999px; background: #ecfeff; color: #0f766e; font-size: 12px; font-weight: 800; }
-.card-head h2 { margin: 8px 0 0; font-size: 17px; color: #0f172a; }
-.link-actions { display: flex; align-items: center; gap: 6px; min-height: 38px; padding: 12px; border-radius: 10px; background: linear-gradient(135deg, #f8fafc, #f1f5f9); flex-wrap: nowrap; }
-.muted-text { display: inline-flex; align-items: center; gap: 6px; color: #94a3b8; font-size: 13px; }
-.metrics { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
-.metrics span { padding: 12px 8px; border-radius: 10px; background: linear-gradient(135deg, #f8fafc, #f1f5f9); color: #64748b; font-size: 12px; text-align: center; border: 1px solid #e2e8f0; }
-.metrics b { display: block; color: #0f172a; font-size: 16px; margin-bottom: 2px; }
-.screenshot { height: 150px; border-radius: 12px; overflow: hidden; background: #f1f5f9; border: 1px solid #e2e8f0; }
-.screenshot img { width: 100%; height: 100%; object-fit: cover; }
-.card-foot { align-items: center; color: #94a3b8; font-size: 12px; }
-.card-actions { display: flex; gap: 6px; }
 
-.btn-open, .btn-copy, .btn-edit, .btn-data {
+.record-table-wrap { background: #fff; border: 1px solid #eceff5; border-radius: 14px; overflow: hidden; }
+.record-table { width: 100%; }
+.record-table :deep(.el-table__header-wrapper th) { background: #f8fafc; font-weight: 700; color: #334155; font-size: 13px; }
+.record-table :deep(.el-table__body-wrapper td) { font-size: 13px; color: #475569; }
+.record-table :deep(.el-table__body tr:hover > td) { background: #f5f3ff !important; }
+
+.platform-badge {
+  display: inline-flex;
+  padding: 4px 10px;
+  border-radius: 999px;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.title-text {
+  color: #1e293b;
+  font-weight: 500;
+}
+
+.muted {
+  color: #94a3b8;
+  font-size: 12px;
+}
+
+.btn-link {
+  color: #4f46e5;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 2px 8px;
+  height: 26px;
+}
+
+.btn-edit, .btn-data {
   display: inline-flex;
   align-items: center;
   gap: 4px;
@@ -417,26 +459,6 @@ onMounted(loadData)
   transition: all 0.2s ease;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
   white-space: nowrap;
-}
-
-.btn-open {
-  background: linear-gradient(135deg, #dbeafe, #bfdbfe);
-  color: #1d4ed8;
-}
-.btn-open:hover {
-  background: linear-gradient(135deg, #bfdbfe, #93c5fd);
-  transform: translateY(-1px);
-  box-shadow: 0 2px 6px rgba(59, 130, 246, 0.25);
-}
-
-.btn-copy {
-  background: linear-gradient(135deg, #ede9fe, #ddd6fe);
-  color: #6d28d9;
-}
-.btn-copy:hover {
-  background: linear-gradient(135deg, #ddd6fe, #c4b5fd);
-  transform: translateY(-1px);
-  box-shadow: 0 2px 6px rgba(139, 92, 246, 0.25);
 }
 
 .btn-edit {

@@ -130,7 +130,7 @@
             <IconFont name="search" :fallback="Search" />
             <input
               v-model.trim="searchText"
-              placeholder="搜索账号、视频、城市..."
+              :placeholder="`搜索当前页面：${route.meta.title || '内容'}...`"
               @keydown.enter="runSearch"
             />
             <kbd>Enter</kbd>
@@ -254,6 +254,7 @@ import {
   Close,
   Collection,
   DataAnalysis,
+  DataBoard,
   EditPen,
   Expand,
   Files,
@@ -286,7 +287,7 @@ const appStore = useAppStore()
 const multiTagsStore = useMultiTagsStore()
 const { sidebarCollapsed, isFullscreen, isDark } = storeToRefs(appStore)
 const { visibleTags: multiTags, homeTag } = storeToRefs(multiTagsStore)
-const searchText = ref('')
+const searchText = ref(String(route.query.keyword || ''))
 const systemSettings = ref(loadSystemSettings())
 const taskProgress = ref({ progress: { percentage: 0, status: '进行中' } })
 const topNotifications = ref([])
@@ -352,7 +353,8 @@ const navSections = [
         children: [
           { to: '/publish/calendar', label: '发布日历', icon: Calendar, iconKey: 'calendar' },
           { to: '/publish/list', label: '发布计划', icon: List, iconKey: 'publishPlan' },
-          { to: '/publish/ledger', label: '发布台账', icon: Tickets, iconKey: 'ledger' }
+          { to: '/publish/ledger', label: '发布台账', icon: Tickets, iconKey: 'ledger' },
+          { to: '/publish/distribution', label: '下发记录', icon: Monitor, iconKey: 'distribution' }
         ]
       }
     ]
@@ -395,7 +397,8 @@ const navSections = [
         children: [
           { to: '/accounts/hq', label: '总部账号', icon: OfficeBuilding, iconKey: 'hqAccount' },
           { to: '/accounts/city', label: '城市账号', icon: LocationFilled, iconKey: 'cityAccount' },
-          { to: '/accounts/other', label: '其他账号', icon: Collection, iconKey: 'otherAccount' }
+          { to: '/accounts/other', label: '其他账号', icon: Collection, iconKey: 'otherAccount' },
+          { to: '/accounts/bluev', label: '城市蓝V账号', icon: Monitor, iconKey: 'bluevAccount' }
         ]
       }
     ]
@@ -411,7 +414,8 @@ const navSections = [
           { to: '/system/settings', label: '系统设置', icon: Setting, iconKey: 'settings' },
           { to: '/system/page-layout', label: '页面布局', icon: Grid, iconKey: 'layout' },
           { to: '/system/component-library', label: '组件库', icon: Files, iconKey: 'component' },
-          { to: '/system/accounts', label: '账号管理', icon: OfficeBuilding, iconKey: 'account' }
+          { to: '/system/accounts', label: '账号管理', icon: OfficeBuilding, iconKey: 'account' },
+          { to: '/system/operation-logs', label: '操作日志', icon: DataBoard, iconKey: 'operationLogs' }
         ]
       }
     ]
@@ -527,9 +531,11 @@ const breadcrumbs = computed(() => {
 })
 
 const runSearch = () => {
-  if (!searchText.value) return
-  ElMessage.info('全局搜索功能待接入，已先跳转到素材列表')
-  router.push({ path: '/material/list', query: { keyword: searchText.value } })
+  const keyword = searchText.value.trim()
+  const query = { ...route.query }
+  if (keyword) query.keyword = keyword
+  else delete query.keyword
+  router.replace({ path: route.path, query })
 }
 
 const logout = () => {
@@ -806,6 +812,7 @@ watch(() => route.fullPath, (path, oldPath) => {
   loadNotifications()
   restoreNavScroll()
   restoreViewScroll(path)
+  searchText.value = String(route.query.keyword || '')
 })
 
 watch(currentUser, syncHomeTag, { deep: true })

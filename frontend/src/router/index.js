@@ -52,6 +52,12 @@ const routes = [
     meta: { title: '发布台账', cityPortal: true }
   },
   {
+    path: '/publish/distribution',
+    name: 'DistributionRecords',
+    component: () => import('@/views/publish/DistributionRecords.vue'),
+    meta: { title: '下发记录' }
+  },
+  {
     path: '/city/board',
     name: 'CityBoard',
     component: () => import('@/views/city/CityBoard.vue'),
@@ -124,6 +130,12 @@ const routes = [
     meta: { title: '账号管理' }
   },
   {
+    path: '/system/operation-logs',
+    name: 'OperationLogs',
+    component: () => import('@/views/system/OperationLogs.vue'),
+    meta: { title: '操作日志' }
+  },
+  {
     path: '/system/settings',
     name: 'SystemSettings',
     component: () => import('@/views/system/SystemSettings.vue'),
@@ -152,7 +164,13 @@ const routes = [
     name: 'OtherAccounts',
     component: () => import('@/views/accounts/OtherAccounts.vue'),
     meta: { title: '其他账号' }
-  }
+  },
+  {
+    path: '/accounts/bluev',
+    name: 'BluevAccountManagement',
+    component: () => import('@/views/accounts/BluevAccountManagement.vue'),
+    meta: { title: '城市蓝V账号' }
+  },
 ]
 
 const router = createRouter({

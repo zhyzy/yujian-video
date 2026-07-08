@@ -13,7 +13,7 @@
             数据中心 · 实时概览
           </div>
           <h1 class="hero-title">数据总览</h1>
-          <p class="hero-sub">{{ currentPeriod }} · 基于 {{ tracks.length }} 条上报数据综合分析</p>
+          <p class="hero-sub">{{ currentPeriod }} · 基于 {{ collapsedTracks.length }} 条上报记录综合分析</p>
           <div class="hero-pills">
             <span class="pill pill-1"><el-icon><TrendCharts /></el-icon>趋势监控</span>
             <span class="pill pill-2"><el-icon><DataAnalysis /></el-icon>转化洞察</span>
@@ -21,14 +21,19 @@
           </div>
         </div>
         <div class="hero-right">
-          <div class="range-group">
-            <button
-              v-for="r in ranges"
-              :key="r.value"
-              class="range-btn"
-              :class="{ active: range === r.value }"
-              @click="switchRange(r.value)"
-            >{{ r.label }}</button>
+          <div class="overview-date-filter">
+            <span>统计时间</span>
+            <el-date-picker
+              v-model="overviewDateRange"
+              type="daterange"
+              value-format="YYYY-MM-DD"
+              format="YYYY-MM-DD"
+              range-separator="至"
+              start-placeholder="开始日期"
+              end-placeholder="结束日期"
+              :clearable="false"
+              @change="onOverviewDateChange"
+            />
           </div>
           <div class="action-group">
             <button class="ghost-btn" @click="refreshData">
@@ -37,7 +42,7 @@
             <button class="ghost-btn" @click="openGoalDialog">
               <el-icon><TrendCharts /></el-icon>本月目标
             </button>
-            <button class="primary-btn" @click="showEntry = true">
+            <button class="primary-btn" @click="openEntryDialog">
               <el-icon><EditPen /></el-icon>录入数据
             </button>
           </div>
@@ -47,13 +52,18 @@
     </template>
 
     <template #summary-row>
+    <div class="summary-content">
+    <div class="period-scope-bar">
+      <strong>{{ periodScopeLabel }}</strong>
+      <span>{{ currentPeriod }} · 以下播放量、互动、成交及发布视频数均按此区间统计</span>
+    </div>
     <!-- Main KPI row -->
     <div class="kpi-grid">
       <!-- Spotlight: 总播放量 -->
       <div class="kpi-card hero-card" :class="{ 'light-bg': !isDataOverviewDarkBg }" :style="dataOverviewBgStyle">
         <div class="hero-shine"></div>
         <div class="kpi-top">
-          <div class="kpi-label"><span class="label-dot"></span>总播放量</div>
+        <div class="kpi-label"><span class="label-dot"></span>{{ periodScopeLabel }}播放量</div>
           <div class="kpi-trend up"><el-icon><Top /></el-icon>+{{ mainStats.viewsTrend }}%</div>
         </div>
         <div class="kpi-big">{{ formatNum(mainStats.views) }}</div>
@@ -77,7 +87,7 @@
           <div class="kpi-icon" :class="'ic-' + k.key">
             <el-icon><component :is="k.icon" /></el-icon>
           </div>
-          <div class="kpi-trend" :class="k.trend >= 0 ? 'up' : 'down'">
+          <div v-if="k.trend !== null" class="kpi-trend" :class="k.trend >= 0 ? 'up' : 'down'">
             <el-icon><component :is="k.trend >= 0 ? 'Top' : 'Bottom'" /></el-icon>{{ Math.abs(k.trend) }}%
           </div>
         </div>
@@ -89,6 +99,13 @@
         </div>
       </div>
     </div>
+    <div class="record-type-summary">
+      <div><span>发布视频数</span><strong>{{ mainStats.publishedVideos }}</strong><em>真实已发布视频</em></div>
+      <div><span>数据上报批次</span><strong>{{ mainStats.reportBatches }}</strong><em>当前周期全部上报</em></div>
+      <div><span>单日数据记录</span><strong>{{ mainStats.singleRecords }}</strong><em>单日快照与单条记录</em></div>
+      <div><span>区间汇总记录</span><strong>{{ mainStats.rangeRecords }}</strong><em>按起止日期汇总</em></div>
+    </div>
+    </div>
     </template>
 
     <template #chart-panel>
@@ -99,7 +116,7 @@
         <header class="panel-head">
           <div>
             <h3>播放趋势分析</h3>
-            <p>按日聚合播放量走势 · 最近 {{ rangeDays }} 天</p>
+            <p>按日聚合播放量走势 · {{ currentPeriod }}（{{ rangeDays }} 天）</p>
           </div>
           <div class="legend-group">
             <span class="legend-chip"><i class="lg lg-indigo"></i>播放量</span>
@@ -108,7 +125,7 @@
           </div>
         </header>
         <div class="chart-wrap">
-          <div ref="trendChartRef" style="width:100%;height:280px;"></div>
+            <div ref="trendChartRef" style="width:100%;height:220px;"></div>
         </div>
       </section>
 
@@ -122,7 +139,7 @@
         </header>
         <div class="donut-wrap">
           <div class="donut-area">
-            <div ref="donutChartRef" style="width:220px;height:220px;"></div>
+            <div ref="donutChartRef" style="width:190px;height:190px;"></div>
             <div class="donut-center">
               <strong>{{ formatNum(mainStats.views) }}</strong>
               <span>总播放</span>
@@ -150,19 +167,45 @@
           <h3>账号数据概览</h3>
           <p>各账号流量表现 · 当前周期内</p>
         </div>
-        <div class="tabs">
-          <button class="tab" :class="{ active: accountFilter === 'all' && !selectedAccountId }" @click="accountFilter = 'all'; selectedAccountId = ''">全部</button>
+        <div class="account-toolbar">
+          <el-select v-model="overviewCityId" clearable filterable placeholder="筛选城市" class="overview-select" @change="onOverviewCityChange">
+            <el-option v-for="city in cities" :key="city.id" :label="city.name" :value="city.id" />
+          </el-select>
+          <el-select v-model="overviewAccountId" clearable filterable placeholder="筛选账号" class="overview-select">
+            <el-option v-for="stat in overviewAccountOptions" :key="stat.account_id" :label="stat.account_name" :value="stat.account_id" />
+          </el-select>
+        </div>
+        <div class="tabs account-platform-tabs">
+          <button class="tab" :class="{ active: accountFilter === 'all' && !selectedAccountId }" @click="accountFilter = 'all'; selectedAccountId = ''; overviewAccountId = ''">全部</button>
           <button
             v-for="group in accountGroups"
             :key="group.platform"
             class="tab"
             :class="{ active: accountFilter === group.platform && !selectedAccountId }"
-            @click="accountFilter = group.platform; selectedAccountId = ''"
+            @click="accountFilter = group.platform; selectedAccountId = ''; overviewAccountId = ''"
           >
             <IconFont :platform="group.platform" /> {{ group.platformName }}
           </button>
         </div>
       </header>
+
+      <div v-if="overviewCityId" class="city-overview-summary">
+        <div class="city-summary-head">
+          <div>
+            <strong>{{ selectedOverviewCity?.name || '城市' }}数据汇总</strong>
+            <span>{{ currentPeriod }} · {{ cityOverviewSummary.accountCount }} 个账号</span>
+          </div>
+          <button class="clear-city-filter" @click="overviewCityId = ''; overviewAccountId = ''">查看全部城市</button>
+        </div>
+        <div class="city-summary-grid">
+          <div><span>总播放</span><strong>{{ formatNum(cityOverviewSummary.views) }}</strong></div>
+          <div><span>总点赞</span><strong>{{ formatNum(cityOverviewSummary.likes) }}</strong></div>
+          <div><span>总评论</span><strong>{{ formatNum(cityOverviewSummary.comments) }}</strong></div>
+          <div><span>总成交</span><strong>{{ formatNum(cityOverviewSummary.deals) }}</strong></div>
+          <div><span>成交金额</span><strong>¥{{ formatMoney(cityOverviewSummary.revenue) }}</strong></div>
+          <div><span>数据记录</span><strong>{{ cityOverviewSummary.reportCount }}</strong></div>
+        </div>
+      </div>
 
       <!-- 账号统计卡片 -->
       <div class="account-cards">
@@ -181,6 +224,11 @@
               <strong>{{ stat.account_name || '未知账号' }}</strong>
               <span v-if="stat.city_name" class="city-tag">{{ stat.city_name }}</span>
             </div>
+          </div>
+          <div class="account-period">
+            <span>统计范围：{{ currentPeriod }}</span>
+            <span>最近上报：{{ stat.latest_period || '暂无周期' }} · {{ stat.report_count }} 条记录</span>
+            <span>管理录入 {{ formatNum(stat.admin_views) }} · 城市填报 {{ formatNum(stat.city_views) }}</span>
           </div>
           <div class="account-stats-grid">
             <div class="account-stat">
@@ -217,11 +265,11 @@
           <p>最近上报数据 · 按日期倒序 · 共 {{ filteredTracks.length }} 条</p>
         </div>
         <div class="tabs">
-          <button class="tab" :class="{ active: trackFilter === 'all' }" @click="trackFilter = 'all'">全部</button>
-          <button class="tab" :class="{ active: trackFilter === 'douyin' }" @click="trackFilter = 'douyin'"><IconFont platform="douyin" />抖音</button>
-          <button class="tab" :class="{ active: trackFilter === 'kuaishou' }" @click="trackFilter = 'kuaishou'"><IconFont platform="kuaishou" />快手</button>
-          <button class="tab" :class="{ active: trackFilter === 'weixin' }" @click="trackFilter = 'weixin'"><IconFont platform="weixin" />视频号</button>
-          <button class="tab" :class="{ active: trackFilter === 'xiaohongshu' }" @click="trackFilter = 'xiaohongshu'"><IconFont platform="xiaohongshu" />小红书</button>
+          <button class="tab" :class="{ active: trackFilter === 'all' }" @click="setTrackFilter('all')">全部</button>
+          <button class="tab" :class="{ active: trackFilter === 'douyin' }" @click="setTrackFilter('douyin')"><IconFont platform="douyin" />抖音</button>
+          <button class="tab" :class="{ active: trackFilter === 'kuaishou' }" @click="setTrackFilter('kuaishou')"><IconFont platform="kuaishou" />快手</button>
+          <button class="tab" :class="{ active: trackFilter === 'weixin' }" @click="setTrackFilter('weixin')"><IconFont platform="weixin" />视频号</button>
+          <button class="tab" :class="{ active: trackFilter === 'xiaohongshu' }" @click="setTrackFilter('xiaohongshu')"><IconFont platform="xiaohongshu" />小红书</button>
         </div>
       </header>
 
@@ -229,21 +277,22 @@
         <table class="data-table">
           <thead>
             <tr>
-              <th style="width:120px">日期</th>
+              <th style="width:210px">统计区间</th>
               <th>视频 / 账号</th>
               <th class="num-right">播放</th>
               <th class="num-right">点赞</th>
               <th class="num-right">评论</th>
               <th class="num-right">成交</th>
               <th class="num-right">金额</th>
+              <th style="width:130px;text-align:center">操作</th>
             </tr>
           </thead>
           <tbody>
             <tr v-for="t in filteredTracks" :key="t.id">
               <td>
                 <div class="date-cell">
-                  <strong>{{ dayjs(t.date).format('MM-DD') }}</strong>
-                  <span>{{ dayjs(t.date).format('YYYY') }}</span>
+                  <strong>{{ trackPeriodText(t) }}</strong>
+                  <span>{{ recordTypeLabel(t.record_type) }}</span>
                 </div>
               </td>
               <td>
@@ -252,7 +301,7 @@
                   <div class="title-sub">
                     <span class="platform-chip" :class="'p-' + (t.platform || 'douyin')"><IconFont :platform="t.platform || 'douyin'" /> {{ platformLabel(t.platform) }}</span>
                     <span>{{ t.account_name || '-' }}</span>
-                    <span v-if="t.source === 'city'" class="source-chip">城市端 · {{ t.city_name || '城市' }}</span>
+                    <span v-if="t.source === 'city' || t.report_source === 'city_manual'" class="source-chip">城市端 · {{ t.city_name || '城市' }}</span>
                     <span v-else class="source-chip manual">手动录入</span>
                   </div>
                 </div>
@@ -272,14 +321,32 @@
               <td class="num-right">
                 <span class="num-money">¥{{ formatMoney(t.revenue || 0) }}</span>
               </td>
+              <td class="row-actions">
+                <template v-if="canManageTrack(t)">
+                  <el-button type="primary" link size="small" @click="openEditTrack(t)">编辑</el-button>
+                  <el-button type="danger" link size="small" @click="handleDeleteTrack(t)">删除</el-button>
+                </template>
+                <span v-else class="muted-action">发布数据</span>
+              </td>
             </tr>
             <tr v-if="!filteredTracks.length" class="empty-row">
-              <td colspan="7">
+              <td colspan="8">
                 <div class="empty-inline">暂无数据 · 点击右上角 "录入数据" 添加</div>
               </td>
             </tr>
           </tbody>
         </table>
+      </div>
+      <div class="detail-pagination">
+        <el-pagination
+          v-model:current-page="detailPagination.page"
+          v-model:page-size="detailPagination.pageSize"
+          :page-sizes="[10, 20, 50, 100]"
+          :total="detailPagination.total"
+          layout="total, sizes, prev, pager, next"
+          @size-change="loadDetailData"
+          @current-change="loadDetailData"
+        />
       </div>
     </section>
     </template>
@@ -334,18 +401,18 @@
       <div class="dialog-card entry-dialog">
         <div class="dialog-head">
           <div>
-            <h3>录入数据</h3>
-            <p>支持单日录入或按时间区间汇总录入。</p>
+            <h3>{{ editingTrack ? '编辑数据' : '录入数据' }}</h3>
+            <p>{{ editingTrack ? '修改后将同步更新管理端与对应城市端。' : '支持单日录入或按时间区间汇总录入。' }}</p>
           </div>
           <button class="dialog-close" @click="showEntry = false"><el-icon><Close /></el-icon></button>
         </div>
         <div class="dialog-body">
           <!-- 时间模式切换 -->
-          <div class="entry-mode-tabs">
+          <div class="entry-mode-tabs" :class="{ locked: editingTrack }">
             <button
               class="mode-tab"
               :class="{ active: entryMode === 'single' }"
-              @click="entryMode = 'single'"
+              @click="!editingTrack && (entryMode = 'single')"
             >
               <el-icon><Calendar /></el-icon>
               单日录入
@@ -353,7 +420,7 @@
             <button
               class="mode-tab"
               :class="{ active: entryMode === 'range' }"
-              @click="entryMode = 'range'"
+              @click="!editingTrack && (entryMode = 'range')"
             >
               <el-icon><DataLine /></el-icon>
               区间汇总录入
@@ -473,7 +540,7 @@
           <button class="primary-btn" :disabled="!canSubmit || saving" @click="submitEntry">
             <el-icon v-if="saving"><Loading /></el-icon>
             <span v-else><el-icon><CircleCheckFilled /></el-icon></span>
-            {{ saving ? '保存中…' : (entryMode === 'range' ? '批量提交' : '提交数据') }}
+            {{ saving ? '保存中…' : (editingTrack ? '保存修改' : (entryMode === 'range' ? '批量提交' : '提交数据')) }}
           </button>
         </div>
       </div>
@@ -487,19 +554,21 @@ import { computed, reactive, ref, onMounted, onBeforeUnmount, nextTick, watch } 
 import dayjs from 'dayjs'
 import {
   Calendar, Close, EditPen, Refresh, CircleCheckFilled, Loading,
-  DataAnalysis, Coin, UserFilled, TrendCharts, ShoppingCart, DataLine, InfoFilled
+  DataAnalysis, Coin, UserFilled, TrendCharts, ShoppingCart, DataLine, InfoFilled, Delete
 } from '@element-plus/icons-vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import IconFont from '@/components/IconFont.vue'
 import * as echarts from 'echarts'
-import { getDataStats, getDataTracks, createDataTrack, getAccounts, getMonthlyGoals, createMonthlyGoal, updateMonthlyGoal } from '@/api'
+import { getDataStats, getDataReportDetails, getCityDistributions, saveRangeDataReport, updateDataTrack, deleteDataTrack, deleteDataReportBatch, getAccounts, getCities, getMonthlyGoals, createMonthlyGoal, updateMonthlyGoal } from '@/api'
 import { applySystemSettings, loadSystemSettings } from '@/utils/systemSettings'
 import ConfigurablePageRenderer from '@/layout-builder/ConfigurablePageRenderer.vue'
 import { useLayoutBindings } from '@/layout-builder/layoutBindings'
 import { layoutModuleCatalog } from '@/layout-builder/moduleCatalog'
+import { usePageSearch } from '@/composables/usePageSearch'
 
 const dataOverviewLayoutModules = layoutModuleCatalog.dataOverview
 const { bindings: layoutBindings } = useLayoutBindings('dataOverview')
+const { matchesPageSearch } = usePageSearch()
 const settings = reactive(loadSystemSettings())
 const refreshSystemSettings = (event) => {
   applySystemSettings(settings, event?.detail || loadSystemSettings())
@@ -563,25 +632,26 @@ const showEntry = ref(false)
 const showGoal = ref(false)
 const saving = ref(false)
 const savingGoal = ref(false)
-const range = ref('30d')
+const overviewDateRange = ref([
+  dayjs().startOf('month').format('YYYY-MM-DD'),
+  dayjs().format('YYYY-MM-DD')
+])
 const trackFilter = ref('all')
 const accountFilter = ref('all') // 账号平台筛选
 const selectedAccountId = ref('') // 选中的账号ID
 
-const ranges = [
-  { label: '7 天', value: '7d' },
-  { label: '30 天', value: '30d' },
-  { label: '90 天', value: '90d' },
-  { label: '本年', value: 'year' }
-]
-
 const tracks = ref([])
 const accounts = ref([])
+const cities = ref([])
 const currentStats = ref({ summary: {}, platformStats: [], trend: [], accountStats: [] })
 const prevStats = ref({ summary: {}, platformStats: [], trend: [], accountStats: [] })
 
 // 录入模式
 const entryMode = ref('single') // 'single' | 'range'
+const editingTrack = ref(null)
+const overviewCityId = ref('')
+const overviewAccountId = ref('')
+const detailPagination = reactive({ page: 1, pageSize: 20, total: 0 })
 
 // 快捷区间选项
 const quickRanges = [
@@ -661,9 +731,10 @@ const normalizeBoundDate = (value) => {
 
 const applyLayoutBindings = (bindings = {}) => {
   let shouldReload = false
-  const allowedRanges = new Set(ranges.map(item => item.value))
-  if ('range' in bindings && allowedRanges.has(bindings.range) && bindings.range !== range.value) {
-    range.value = bindings.range
+  const from = normalizeBoundDate(bindings.dateFrom)
+  const to = normalizeBoundDate(bindings.dateTo)
+  if (from || to) {
+    overviewDateRange.value = [from || to, to || from]
     shouldReload = true
   }
   if ('platform' in bindings) trackFilter.value = bindings.platform || 'all'
@@ -684,6 +755,7 @@ const applyLayoutBindings = (bindings = {}) => {
 const platformLabel = (p) => ({ douyin: '抖音', kuaishou: '快手', weixin: '视频号', xiaohongshu: '小红书' }[p] || (p || '-'))
 const normalizeTrack = (track = {}) => ({
   ...track,
+  date: track.date || track.period_end || track.period_start || '',
   views: Number(track.views ?? track.play_count ?? 0),
   likes: Number(track.likes ?? track.like_count ?? 0),
   comments: Number(track.comments ?? track.comment_count ?? 0),
@@ -691,12 +763,20 @@ const normalizeTrack = (track = {}) => ({
   revenue: Number(track.revenue ?? track.deal_amount ?? 0)
 })
 
-const rangeDays = computed(() => ({ '7d': 7, '30d': 30, '90d': 90, year: 365 }[range.value] || 30))
-const currentPeriod = computed(() => {
-  const end = dayjs()
-  const start = end.subtract(rangeDays.value - 1, 'day')
-  return `${start.format('YYYY/M/D')} - ${end.format('YYYY/M/D')}`
+const rangeDays = computed(() => {
+  const [start, end] = overviewDateRange.value || []
+  if (!start || !end) return 1
+  return Math.max(dayjs(end).diff(dayjs(start), 'day') + 1, 1)
 })
+const currentPeriod = computed(() => {
+  const [start, end] = overviewDateRange.value || []
+  return `${dayjs(start).format('YYYY/M/D')} - ${dayjs(end).format('YYYY/M/D')}`
+})
+const isCurrentMonthPeriod = computed(() => {
+  const [start, end] = overviewDateRange.value || []
+  return start === dayjs().startOf('month').format('YYYY-MM-DD') && end === dayjs().format('YYYY-MM-DD')
+})
+const periodScopeLabel = computed(() => isCurrentMonthPeriod.value ? '本月累计' : '所选期间累计')
 
 // -------- compute main KPI aggregates --------
 const mainStats = computed(() => {
@@ -713,16 +793,24 @@ const mainStats = computed(() => {
   const prevComments = Number(ps.total_comments || 0)
   const prevDeals = Number(ps.total_deals || 0)
   const prevRevenue = Number(ps.total_amount || 0)
-  const prevVideos = Number(ps.total_videos || 0)
+  const publishedVideos = Number(s.published_videos || 0)
+  const prevPublishedVideos = Number(ps.published_videos || 0)
   const calcTrend = (curr, prev) => prev ? Math.round((curr - prev) / prev * 100) : 0
   return {
     views, likes, comments, deals, revenue, videos,
+    publishedVideos,
+    publishedHqVideos: Number(s.published_hq_videos || 0),
+    publishedCityVideos: Number(s.published_city_videos || 0),
+    reportBatches: Number(s.report_batches || 0),
+    singleRecords: Number(s.single_records || 0),
+    rangeRecords: Number(s.range_records || 0),
+    distributedVideos: Number(s.distributed_videos || 0),
     viewsTrend: calcTrend(views, prevViews),
     likesTrend: calcTrend(likes, prevLikes),
     commentsTrend: calcTrend(comments, prevComments),
     dealsTrend: calcTrend(deals, prevDeals),
     revenueTrend: calcTrend(revenue, prevRevenue),
-    videosTrend: calcTrend(videos, prevVideos),
+    videosTrend: calcTrend(publishedVideos, prevPublishedVideos),
     viewsSeries: viewsSeries.value,
   }
 })
@@ -732,7 +820,8 @@ const secondaryKPIs = computed(() => [
   { key: 'comments', label: '总评论', value: mainStats.value.comments, trend: mainStats.value.commentsTrend, icon: 'ChatDotRound', accent: 'amber', hint: mainStats.value.comments > 0 ? '话题热度上升' : '暂无数据', prefix: '', suffix: '' },
   { key: 'deals', label: '成交单数', value: mainStats.value.deals, trend: mainStats.value.dealsTrend, icon: 'ShoppingCart', accent: 'green', hint: mainStats.value.deals > 0 ? '转化提升明显' : '暂无数据', prefix: '', suffix: '' },
   { key: 'revenue', label: '成交金额', value: mainStats.value.revenue, trend: mainStats.value.revenueTrend, icon: 'Coin', accent: 'indigo', hint: mainStats.value.revenue > 0 ? '表现超预期' : '暂无数据', prefix: '¥', suffix: '' },
-  { key: 'videos', label: '视频总数', value: mainStats.value.videos, trend: mainStats.value.videosTrend, icon: 'VideoCamera', accent: 'cyan', hint: '本周期新增', prefix: '', suffix: ' 条' }
+  { key: 'videos', label: '发布视频总数', value: mainStats.value.publishedVideos, trend: mainStats.value.videosTrend, icon: 'VideoCamera', accent: 'cyan', hint: `总部 ${mainStats.value.publishedHqVideos} 条 · 城市 ${mainStats.value.publishedCityVideos} 条`, prefix: '', suffix: ' 条' },
+  { key: 'distributed', label: '下发视频总数', value: mainStats.value.distributedVideos, trend: null, icon: 'DataLine', accent: 'blue', hint: '按下发记录任务日期统计', prefix: '', suffix: ' 条' }
 ])
 
 // 模拟 spark 序列
@@ -740,10 +829,10 @@ const viewsSeries = computed(() => {
   const trend = currentStats.value.trend || []
   const dailyMap = {}
   for (const t of trend) dailyMap[t.date] = (dailyMap[t.date] || 0) + (Number(t.plays ?? t.views ?? 0) || 0)
-  const days = rangeDays.value
+  const [start] = overviewDateRange.value
   const series = []
-  for (let i = days - 1; i >= 0; i--) {
-    const d = dayjs().subtract(i, 'day').format('YYYY-MM-DD')
+  for (let i = 0; i < rangeDays.value; i++) {
+    const d = dayjs(start).add(i, 'day').format('YYYY-MM-DD')
     series.push(dailyMap[d] || 0)
   }
   return series
@@ -783,8 +872,48 @@ const platformBreakdown = computed(() => {
     .sort((a, b) => b.value - a.value)
 })
 
+const collapsedTracks = computed(() => {
+  const rows = []
+  const batches = new Map()
+  for (const track of tracks.value) {
+    if (!track.report_batch_id) {
+      rows.push(track)
+      continue
+    }
+    if (!batches.has(track.report_batch_id)) {
+      batches.set(track.report_batch_id, {
+        ...track,
+        id: `batch-${track.report_batch_id}`,
+        date: track.period_end || track.date,
+        views: 0, likes: 0, comments: 0, deals: 0, revenue: 0,
+        favorites: 0, shares: 0
+      })
+    }
+    const batch = batches.get(track.report_batch_id)
+    batch.views += Number(track.views || 0)
+    batch.likes += Number(track.likes || 0)
+    batch.comments += Number(track.comments || 0)
+    batch.deals += Number(track.deals || 0)
+    batch.revenue += Number(track.revenue || 0)
+    batch.favorites += Number(track.favorites || 0)
+    batch.shares += Number(track.shares || 0)
+  }
+  return [...rows, ...batches.values()]
+})
+
+const trackPeriodText = (track) => {
+  if (track.period_start && track.period_end) return `${track.period_start} 至 ${track.period_end}`
+  return track.date || '-'
+}
+const recordTypeLabel = (type) => ({
+  published_video: '真实发布视频',
+  range_summary: '区间汇总记录',
+  single_snapshot: '单日数据快照',
+  single_record: '单日数据记录'
+}[type] || '数据记录')
+
 const filteredTracks = computed(() => {
-  let list = [...tracks.value].sort((a, b) => (b.date || '').localeCompare(a.date || ''))
+  let list = [...collapsedTracks.value].sort((a, b) => (b.date || '').localeCompare(a.date || ''))
 
   // 按平台筛选
   if (trackFilter.value !== 'all') {
@@ -801,39 +930,14 @@ const filteredTracks = computed(() => {
 
 // 账号统计数据计算
 const accountStats = computed(() => {
-  const map = {}
-  const days = rangeDays.value
-  const end = dayjs().format('YYYY-MM-DD')
-  const start = dayjs().subtract(days - 1, 'day').format('YYYY-MM-DD')
-
-  for (const t of tracks.value) {
-    // 只统计当前周期内的数据
-    if (t.date < start || t.date > end) continue
-
-    const aid = t.account_id || 'unknown'
-    if (!map[aid]) {
-      map[aid] = {
-        account_id: aid,
-        account_name: t.account_name || '未知账号',
-        platform: t.platform || 'douyin',
-        city_name: t.city_name || '',
-        total_views: 0,
-        total_likes: 0,
-        total_comments: 0,
-        total_deals: 0,
-        total_revenue: 0,
-        video_count: 0
-      }
-    }
-    map[aid].total_views += Number(t.views || 0)
-    map[aid].total_likes += Number(t.likes || 0)
-    map[aid].total_comments += Number(t.comments || 0)
-    map[aid].total_deals += Number(t.deals || 0)
-    map[aid].total_revenue += Number(t.revenue || 0)
-    map[aid].video_count += 1
-  }
-
-  return Object.values(map).sort((a, b) => b.total_views - a.total_views)
+  return (currentStats.value.accountStats || []).map(item => ({
+    ...item,
+    total_views: Number(item.total_views || 0), total_likes: Number(item.total_likes || 0),
+    total_comments: Number(item.total_comments || 0), total_deals: Number(item.total_deals || 0),
+    total_revenue: Number(item.total_revenue || 0), admin_views: Number(item.admin_views || 0),
+    city_views: Number(item.city_views || 0), report_count: Number(item.report_count || 0),
+    latest_period: item.latest_period || ''
+  }))
 })
 
 // 按平台筛选账号统计
@@ -843,12 +947,41 @@ const filteredAccountStats = computed(() => {
   if (accountFilter.value !== 'all') {
     list = list.filter(s => s.platform === accountFilter.value)
   }
+  if (overviewCityId.value) {
+    list = list.filter(s => String(s.city_id) === String(overviewCityId.value))
+  }
+  if (overviewAccountId.value) {
+    list = list.filter(s => String(s.account_id) === String(overviewAccountId.value))
+  }
   // 按账号ID筛选
   if (selectedAccountId.value) {
     list = list.filter(s => String(s.account_id) === String(selectedAccountId.value))
   }
+  list = list.filter(stat => matchesPageSearch(stat.account_name, stat.city_name, stat.platform, stat.latest_period))
   return list
 })
+
+const selectedOverviewCity = computed(() => cities.value.find(city => String(city.id) === String(overviewCityId.value)) || null)
+const cityAccountStats = computed(() => accountStats.value.filter(stat => String(stat.city_id) === String(overviewCityId.value)))
+const overviewAccountOptions = computed(() => {
+  const list = overviewCityId.value ? cityAccountStats.value : accountStats.value
+  return accountFilter.value === 'all' ? list : list.filter(stat => stat.platform === accountFilter.value)
+})
+const cityOverviewSummary = computed(() => cityAccountStats.value.reduce((summary, stat) => {
+  summary.views += Number(stat.total_views || 0)
+  summary.likes += Number(stat.total_likes || 0)
+  summary.comments += Number(stat.total_comments || 0)
+  summary.deals += Number(stat.total_deals || 0)
+  summary.revenue += Number(stat.total_revenue || 0)
+  summary.reportCount += Number(stat.report_count || 0)
+  summary.accountCount += 1
+  return summary
+}, { views: 0, likes: 0, comments: 0, deals: 0, revenue: 0, reportCount: 0, accountCount: 0 }))
+
+const onOverviewCityChange = () => {
+  overviewAccountId.value = ''
+  selectedAccountId.value = ''
+}
 
 const formatNum = (n) => {
   const v = Number(n || 0)
@@ -865,15 +998,15 @@ const formatMoney = (n) => {
 const canSubmit = computed(() => {
   const hasMetric = entryForm.views || entryForm.likes || entryForm.comments || entryForm.favorites || entryForm.shares || entryForm.deals || entryForm.revenue
   if (entryMode.value === 'single') {
-    return entryForm.date && entryForm.video_title && hasMetric
+    return entryForm.date && entryForm.account_id && entryForm.video_title && hasMetric
   } else {
     return entryForm.dateRange && entryForm.dateRange.length === 2 && entryForm.account_id && hasMetric
   }
 })
 
-const switchRange = async (r) => {
-  if (range.value === r) return
-  range.value = r
+const onOverviewDateChange = async (value) => {
+  if (!value || value.length !== 2) return
+  detailPagination.page = 1
   await loadData()
 }
 
@@ -898,6 +1031,56 @@ const loadGoal = async () => {
 const openGoalDialog = async () => {
   showGoal.value = true
   await loadGoal()
+}
+
+const resetEntryForm = () => {
+  Object.assign(entryForm, {
+    date: dayjs().format('YYYY-MM-DD'), dateRange: null,
+    account_id: '', video_title: '', views: 0, likes: 0, comments: 0,
+    deals: 0, revenue: 0, favorites: 0, shares: 0, platform: 'douyin'
+  })
+}
+
+const openEntryDialog = () => {
+  editingTrack.value = null
+  entryMode.value = 'single'
+  resetEntryForm()
+  showEntry.value = true
+}
+
+const canManageTrack = (track) => Boolean(track.report_batch_id || track.record_type === 'single_record' || track.source === 'manual')
+
+const openEditTrack = (track) => {
+  editingTrack.value = track
+  entryMode.value = track.report_batch_id ? 'range' : 'single'
+  Object.assign(entryForm, {
+    date: track.date || dayjs().format('YYYY-MM-DD'),
+    dateRange: track.report_batch_id ? [track.period_start, track.period_end] : null,
+    account_id: track.account_id || '',
+    video_title: track.video_title || (track.report_batch_id ? '区间汇总数据' : '手动录入数据'),
+    views: Number(track.views || 0), likes: Number(track.likes || 0),
+    comments: Number(track.comments || 0), favorites: Number(track.favorites || 0),
+    shares: Number(track.shares || 0), deals: Number(track.deals || 0),
+    revenue: Number(track.revenue || 0), platform: track.platform || 'douyin'
+  })
+  showEntry.value = true
+}
+
+const handleDeleteTrack = async (track) => {
+  const period = trackPeriodText(track)
+  try {
+    await ElMessageBox.confirm(
+      `确认删除「${track.account_name || '该账号'}」${period} 的数据吗？删除后管理端与城市端都会同步更新。`,
+      '删除数据',
+      { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' }
+    )
+  } catch {
+    return
+  }
+  if (track.report_batch_id) await deleteDataReportBatch(track.report_batch_id)
+  else await deleteDataTrack(track.id)
+  ElMessage.success('数据已删除并同步更新')
+  await loadData()
 }
 
 const saveGoal = async () => {
@@ -928,8 +1111,11 @@ const submitEntry = async () => {
   try {
     const account = accounts.value.find(a => String(a.id) === String(entryForm.account_id)) || {}
 
-    // 构建 payload
-    const basePayload = {
+    const periodStart = entryMode.value === 'range' ? entryForm.dateRange[0] : entryForm.date
+    const periodEnd = entryMode.value === 'range' ? entryForm.dateRange[1] : entryForm.date
+    const payload = {
+      period_start: periodStart,
+      period_end: periodEnd,
       play_count: Number(entryForm.views || 0),
       like_count: Number(entryForm.likes || 0),
       comment_count: Number(entryForm.comments || 0),
@@ -943,56 +1129,30 @@ const submitEntry = async () => {
       favorites: Number(entryForm.favorites || 0),
       shares: Number(entryForm.shares || 0),
     }
-
-    // 如果是区间模式，按天拆分成多条记录
-    if (entryMode.value === 'range' && entryForm.dateRange) {
-      const [startDate, endDate] = entryForm.dateRange
-      const days = dayjs(endDate).diff(dayjs(startDate), 'day') + 1
-      const avgViews = Math.round(entryForm.views / days)
-      const avgLikes = Math.round(entryForm.likes / days)
-      const avgComments = Math.round(entryForm.comments / days)
-      const avgDeals = Math.round(entryForm.deals / days)
-      const avgRevenue = entryForm.revenue / days
-
-      // 按天创建记录
-      for (let i = 0; i < days; i++) {
-        const date = dayjs(startDate).add(i, 'day').format('YYYY-MM-DD')
-        const payload = {
-          ...basePayload,
-          date,
-          play_count: avgViews,
-          like_count: avgLikes,
-          comment_count: avgComments,
-          deal_count: avgDeals,
-          deal_amount: Math.round(avgRevenue * 100) / 100,
-          video_title: `区间汇总 - ${startDate} 至 ${endDate}`
-        }
-
-        await createDataTrack(payload)
-      }
-
-      ElMessage.success(`已成功录入 ${days} 天的区间汇总数据`)
+    let result
+    if (editingTrack.value && !editingTrack.value.report_batch_id) {
+      result = await updateDataTrack(editingTrack.value.id, { ...payload, date: entryForm.date })
     } else {
-      // 单日模式
-      const payload = {
-        ...basePayload,
-        date: entryForm.date,
-        video_title: entryForm.video_title
+      if (editingTrack.value?.report_batch_id) payload.replace_batch_id = editingTrack.value.report_batch_id
+      try {
+        result = await saveRangeDataReport(payload)
+      } catch (error) {
+        if (error?.response?.status !== 409) throw error
+        const overlaps = error.response?.data?.data?.overlaps || []
+        const periods = overlaps.map(item => `${item.period_start} 至 ${item.period_end}`).join('、')
+        await ElMessageBox.confirm(
+          `所选周期与已有数据重叠${periods ? `（${periods}）` : ''}。继续后将覆盖重叠周期的数据，是否继续？`,
+          '确认覆盖数据',
+          { type: 'warning', confirmButtonText: '覆盖原数据', cancelButtonText: '取消' }
+        )
+        result = await saveRangeDataReport({ ...payload, overwrite: true })
       }
-
-      await createDataTrack(payload)
-
-      ElMessage.success('数据已保存')
     }
+    ElMessage.success(editingTrack.value ? '数据已修改并同步更新' : (result?.replaced ? '原周期数据已覆盖' : '数据已保存'))
 
     // 重置表单
-    Object.assign(entryForm, {
-      date: dayjs().format('YYYY-MM-DD'),
-      dateRange: null,
-      account_id: '', video_title: '',
-      views: 0, likes: 0, comments: 0, deals: 0, revenue: 0,
-      favorites: 0, shares: 0
-    })
+    resetEntryForm()
+    editingTrack.value = null
     entryMode.value = 'single'
     showEntry.value = false
     await loadData()
@@ -1007,7 +1167,7 @@ const submitEntry = async () => {
 
 // ------- ECharts rendering -------
 const renderCharts = () => {
-  const days = rangeDays.value
+  const [start] = overviewDateRange.value
   const labels = []
   const byDayViews = []
   const byDayLikes = []
@@ -1022,8 +1182,8 @@ const renderCharts = () => {
     trendMap[date].likes += Number(item.likes ?? item.like_count ?? 0)
     trendMap[date].comments += Number(item.comments ?? item.comment_count ?? 0)
   }
-  for (let i = days - 1; i >= 0; i--) {
-    const d = dayjs().subtract(i, 'day').format('YYYY-MM-DD')
+  for (let i = 0; i < rangeDays.value; i++) {
+    const d = dayjs(start).add(i, 'day').format('YYYY-MM-DD')
     labels.push(dayjs(d).format('M/D'))
     if (trendMap[d]) {
       byDayViews.push(trendMap[d].views)
@@ -1141,19 +1301,26 @@ const renderCharts = () => {
 
 const loadData = async () => {
   const days = rangeDays.value
-  const end = dayjs().format('YYYY-MM-DD')
-  const start = dayjs().subtract(days - 1, 'day').format('YYYY-MM-DD')
+  const [start, end] = overviewDateRange.value
   const prevEnd = dayjs(start).subtract(1, 'day').format('YYYY-MM-DD')
   const prevStart = dayjs(start).subtract(days, 'day').format('YYYY-MM-DD')
 
   // 获取当前周期统计数据
   try {
-    const stats = await getDataStats({ dateFrom: start, dateTo: end, range: range.value })
+    const [stats, distributionResult] = await Promise.all([
+      getDataStats({ dateFrom: start, dateTo: end }),
+      getCityDistributions({ dateFrom: start, dateTo: end, page: 1, pageSize: 1 })
+    ])
     if (stats) {
       currentStats.value = {
-        summary: stats.summary || {},
+        summary: {
+          ...(stats.summary || {}),
+          distributed_videos: Number(distributionResult?.total || 0)
+        },
         platformStats: stats.platformStats || [],
-        trend: stats.trend || []
+        trend: stats.trend || [],
+        accountStats: stats.accountStats || [],
+        cityStats: stats.cityStats || []
       }
     }
   } catch {}
@@ -1170,12 +1337,7 @@ const loadData = async () => {
     }
   } catch {}
 
-  // 获取明细数据
-  try {
-    const t = await getDataTracks({ range: range.value, pageSize: 500 })
-    if (Array.isArray(t)) tracks.value = t.map(normalizeTrack)
-    else if (t && Array.isArray(t.list)) tracks.value = t.list.map(normalizeTrack)
-  } catch {}
+  await loadDetailData()
 
   // 获取账号列表
   try {
@@ -1183,7 +1345,31 @@ const loadData = async () => {
     accounts.value = Array.isArray(accs) ? accs : (accs?.list || [])
   } catch {}
 
+  try {
+    const cityRows = await getCities()
+    cities.value = Array.isArray(cityRows) ? cityRows : []
+  } catch {}
+
   nextTick(() => renderCharts())
+}
+
+async function loadDetailData () {
+  const [start, end] = overviewDateRange.value
+  try {
+    const result = await getDataReportDetails({
+      dateFrom: start, dateTo: end,
+      page: detailPagination.page, pageSize: detailPagination.pageSize,
+      platform: trackFilter.value === 'all' ? '' : trackFilter.value
+    })
+    tracks.value = (result?.list || []).map(normalizeTrack)
+    detailPagination.total = Number(result?.total || 0)
+  } catch {}
+}
+
+const setTrackFilter = async (value) => {
+  trackFilter.value = value
+  detailPagination.page = 1
+  await loadDetailData()
 }
 
 watch(layoutBindings, (value) => applyLayoutBindings(value), { deep: true, immediate: true })
@@ -1207,7 +1393,7 @@ if (typeof window !== 'undefined') window.addEventListener('resize', handleResiz
 
 <style scoped>
 .data-overview {
-  display: flex; flex-direction: column; gap: 20px;
+  display: flex; flex-direction: column; gap: 14px;
   animation: fadeInUp 0.5s ease;
 }
 @keyframes fadeInUp {
@@ -1220,7 +1406,7 @@ if (typeof window !== 'undefined') window.addEventListener('resize', handleResiz
   position: relative;
   border-radius: 18px;
   overflow: hidden;
-  padding: 28px 32px;
+  padding: 18px 24px;
   color: #fff;
 }
 .hero-bg {
@@ -1238,14 +1424,14 @@ if (typeof window !== 'undefined') window.addEventListener('resize', handleResiz
   background-size: 22px 22px;
   opacity: 0.55;
 }
-.hero-grid { position: relative; z-index: 1; display: grid; grid-template-columns: 1.4fr 1fr; gap: 24px; align-items: center; }
+.hero-grid { position: relative; z-index: 1; display: grid; grid-template-columns: minmax(300px, 1fr) auto; gap: 20px; align-items: center; }
 
-.eyebrow { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; color: rgba(255,255,255,0.8); font-weight: 500; letter-spacing: 0.03em; margin-bottom: 10px; }
+.eyebrow { display: inline-flex; align-items: center; gap: 8px; font-size: 11px; color: rgba(255,255,255,0.8); font-weight: 500; letter-spacing: 0.03em; margin-bottom: 5px; }
 .eyebrow .dot { width: 6px; height: 6px; border-radius: 999px; background: #fff; box-shadow: 0 0 0 4px rgba(255,255,255,0.18); }
-.hero-title { font-size: 32px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.15; margin: 0 0 8px; }
-.hero-sub { font-size: 14px; color: rgba(255,255,255,0.78); margin: 0 0 18px; font-weight: 400; }
+.hero-title { font-size: 25px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.15; margin: 0 0 5px; }
+.hero-sub { font-size: 12px; color: rgba(255,255,255,0.78); margin: 0; font-weight: 400; }
 
-.hero-pills { display: flex; gap: 10px; flex-wrap: wrap; }
+.hero-pills { display: none; }
 .pill {
   display: inline-flex; align-items: center; gap: 6px;
   padding: 7px 14px; border-radius: 99px;
@@ -1255,20 +1441,21 @@ if (typeof window !== 'undefined') window.addEventListener('resize', handleResiz
 }
 .pill .el-icon { font-size: 13px; }
 
-.hero-right { display: flex; flex-direction: column; gap: 12px; align-items: flex-end; }
-.range-group { display: flex; background: rgba(255,255,255,0.12); border-radius: 10px; padding: 4px; border: 1px solid rgba(255,255,255,0.15); backdrop-filter: blur(6px); }
-.range-btn {
-  height: 32px; padding: 0 14px; border: 0; background: transparent;
-  color: rgba(255,255,255,0.8); font-size: 12.5px; font-weight: 500;
-  border-radius: 8px; cursor: pointer; transition: all 0.15s;
-}
-.range-btn:hover { color: #fff; }
-.range-btn.active { background: #fff; color: #4338ca; font-weight: 700; box-shadow: 0 4px 10px rgba(0,0,0,0.12); }
+.hero-right { display: flex; flex-direction: row; flex-wrap: wrap; justify-content: flex-end; gap: 8px; align-items: center; }
+.overview-date-filter { display: flex; align-items: center; gap: 8px; padding: 4px 7px 4px 10px; border: 1px solid rgba(255,255,255,.2); border-radius: 9px; background: rgba(255,255,255,.12); backdrop-filter: blur(6px); }
+.overview-date-filter > span { flex: 0 0 auto; color: rgba(255,255,255,.88); font-size: 12px; font-weight: 700; }
+.overview-date-filter :deep(.el-date-editor) { width: 270px; }
+.overview-date-filter :deep(.el-range-editor.el-input__wrapper) { background: #fff; box-shadow: none; }
 
 .action-group { display: flex; gap: 10px; }
 
+.summary-content { width: 100%; display: flex; flex-direction: column; gap: 10px; }
+.period-scope-bar { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border: 1px solid #dbeafe; border-radius: 10px; background: #eff6ff; }
+.period-scope-bar strong { color: #4338ca; font-size: 12px; }
+.period-scope-bar span { color: #64748b; font-size: 11px; }
+
 .ghost-btn {
-  height: 38px; padding: 0 16px; border-radius: 10px;
+  height: 34px; padding: 0 12px; border-radius: 9px;
   background: rgba(255,255,255,0.12); color: #fff;
   border: 1px solid rgba(255,255,255,0.18);
   font-size: 13.5px; font-weight: 500; cursor: pointer;
@@ -1278,7 +1465,7 @@ if (typeof window !== 'undefined') window.addEventListener('resize', handleResiz
 .ghost-btn:hover { background: rgba(255,255,255,0.22); }
 
 .primary-btn {
-  height: 38px; padding: 0 16px; border-radius: 10px; border: 0;
+  height: 34px; padding: 0 13px; border-radius: 9px; border: 0;
   background: #fff; color: #4338ca;
   font-size: 13.5px; font-weight: 700; cursor: pointer;
   display: inline-flex; align-items: center; gap: 6px;
@@ -1291,46 +1478,50 @@ if (typeof window !== 'undefined') window.addEventListener('resize', handleResiz
 /* KPI grid */
 .kpi-grid {
   display: grid;
-  grid-template-columns: 1.6fr 1fr 1fr 1fr 1fr 1fr;
-  gap: 14px;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 10px;
+  align-items: stretch;
 }
 
 .kpi-card {
   position: relative;
   background: #fff; border: 1px solid #ececf1;
-  border-radius: 16px; padding: 20px;
+  border-radius: 13px; padding: 13px;
+  min-height: 118px;
   transition: all 0.2s ease; overflow: hidden;
 }
 .kpi-card:hover { transform: translateY(-2px); box-shadow: 0 12px 28px rgba(15,23,42,0.08); border-color: #c7d2fe; }
 
-.kpi-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+.kpi-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 7px; }
 .kpi-label { font-size: 12.5px; color: #64748b; font-weight: 500; display: inline-flex; align-items: center; gap: 6px; }
 .label-dot { width: 6px; height: 6px; border-radius: 999px; background: #6366f1; }
 .kpi-label-sm { font-size: 12px; color: #94a3b8; font-weight: 500; margin-bottom: 4px; }
-.kpi-value { font-size: 26px; font-weight: 700; color: #0f172a; letter-spacing: -0.015em; line-height: 1.2; }
-.kpi-caption-sm { margin-top: 8px; font-size: 11.5px; color: #64748b; display: flex; align-items: center; gap: 6px; }
+.kpi-value { font-size: 22px; font-weight: 700; color: #0f172a; letter-spacing: -0.015em; line-height: 1.2; }
+.kpi-caption-sm { margin-top: 5px; font-size: 10px; color: #64748b; display: flex; align-items: center; gap: 5px; }
 .dot-sm { width: 6px; height: 6px; border-radius: 999px; }
 .bg-indigo { background: #6366f1; }
 .bg-pink { background: #ec4899; }
 .bg-amber { background: #f59e0b; }
 .bg-green { background: #10b981; }
 .bg-cyan { background: #06b6d4; }
+.bg-blue { background: #3b82f6; }
 
 .text-indigo { color: #4338ca; }
 .text-pink { color: #db2777; }
 .text-amber { color: #b45309; }
 .text-green { color: #047857; }
+.text-blue { color: #2563eb; }
 
 .kpi-trend {
   display: inline-flex; align-items: center; gap: 3px;
-  padding: 4px 10px; border-radius: 99px; font-size: 11.5px; font-weight: 700;
+  padding: 3px 6px; border-radius: 99px; font-size: 10px; font-weight: 700;
 }
 .kpi-trend .el-icon { font-size: 11px; }
 .kpi-trend.up { background: #ecfdf5; color: #059669; }
 .kpi-trend.down { background: #fef2f2; color: #dc2626; }
 
 .kpi-icon {
-  width: 36px; height: 36px; border-radius: 10px;
+  width: 30px; height: 30px; border-radius: 8px;
   display: grid; place-items: center; color: #fff;
   box-shadow: 0 4px 10px rgba(0,0,0,0.08);
 }
@@ -1340,11 +1531,13 @@ if (typeof window !== 'undefined') window.addEventListener('resize', handleResiz
 .ic-deals { background: linear-gradient(135deg, #10b981, #34d399); }
 .ic-revenue { background: linear-gradient(135deg, #6366f1, #8b5cf6); }
 .ic-videos { background: linear-gradient(135deg, #06b6d4, #22d3ee); }
+.ic-distributed { background: linear-gradient(135deg, #2563eb, #60a5fa); }
 
 /* Hero card */
 .kpi-card.hero-card {
+  grid-column: span 1;
   background: linear-gradient(135deg, #4338ca 0%, #6366f1 50%, #8b5cf6 100%);
-  color: #fff; border: 0; padding: 24px;
+  color: #fff; border: 0; padding: 13px;
   box-shadow: 0 12px 30px rgba(99,102,241,0.25);
 }
 .kpi-card.hero-card.light-bg {
@@ -1370,13 +1563,13 @@ if (typeof window !== 'undefined') window.addEventListener('resize', handleResiz
 .kpi-card.hero-card .label-dot { background: #fff; }
 .kpi-card.hero-card .kpi-trend.up { background: rgba(255,255,255,0.22); color: #fff; }
 .kpi-big {
-  font-size: 48px; font-weight: 800; letter-spacing: -0.03em;
-  line-height: 1.1; margin: 6px 0 8px;
+  font-size: 30px; font-weight: 800; letter-spacing: -0.03em;
+  line-height: 1.1; margin: 3px 0 4px;
   font-variant-numeric: tabular-nums;
 }
-.kpi-caption { font-size: 12.5px; color: rgba(255,255,255,0.8); margin-bottom: 10px; }
+.kpi-caption { font-size: 10px; color: rgba(255,255,255,0.8); margin-bottom: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .kpi-sparkline {
-  margin-top: 6px; height: 52px;
+  display: none;
 }
 .kpi-sparkline svg { width: 100%; height: 100%; }
 
@@ -1391,13 +1584,8 @@ if (typeof window !== 'undefined') window.addEventListener('resize', handleResiz
   background: rgba(99,102,241,0.1);
   color: #4f46e5;
 }
-.hero-bar.light-bg .range-btn {
-  color: #475569;
-}
-.hero-bar.light-bg .range-btn.active {
-  background: #e0e7ff;
-  color: #4f46e5;
-}
+.hero-bar.light-bg .overview-date-filter { background: rgba(255,255,255,.65); border-color: #c7d2fe; }
+.hero-bar.light-bg .overview-date-filter > span { color: #475569; }
 .hero-bar.light-bg .ghost-btn {
   background: rgba(15,23,42,0.06);
   color: #475569;
@@ -1421,11 +1609,11 @@ if (typeof window !== 'undefined') window.addEventListener('resize', handleResiz
 .lg-pink { background: #ec4899; }
 .lg-amber { background: #f59e0b; }
 
-.chart-wrap { position: relative; height: 280px; }
+.chart-wrap { position: relative; height: 220px; }
 
 /* Donut */
-.donut-wrap { display: grid; grid-template-columns: 220px 1fr; gap: 16px; align-items: center; min-height: 280px; }
-.donut-area { position: relative; width: 220px; height: 220px; }
+.donut-wrap { display: grid; grid-template-columns: 190px 1fr; gap: 14px; align-items: center; min-height: 220px; }
+.donut-area { position: relative; width: 190px; height: 190px; }
 .donut-center {
   position: absolute; inset: 0; display: flex; flex-direction: column;
   align-items: center; justify-content: center; pointer-events: none;
@@ -1464,6 +1652,33 @@ if (typeof window !== 'undefined') window.addEventListener('resize', handleResiz
 .account-stats-panel {
   background: linear-gradient(180deg, #fff 0%, #fafbff 100%);
 }
+.record-type-summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+.record-type-summary > div { min-height: 70px; padding: 10px 13px; border: 1px solid #e2e8f0; border-radius: 11px; background: linear-gradient(180deg, #fff 0%, #f8fafc 100%); box-shadow: 0 3px 10px rgba(15,23,42,.035); }
+.record-type-summary span, .record-type-summary em { display: block; }
+.record-type-summary span { color: #475569; font-size: 12px; font-weight: 600; }
+.record-type-summary strong { display: block; margin: 3px 0 1px; color: #4338ca; font-size: 19px; }
+.record-type-summary em { color: #94a3b8; font-size: 9.5px; font-style: normal; }
+.detail-pagination { display: flex; justify-content: flex-end; padding-top: 16px; }
+.account-stats-panel .panel-head { flex-wrap: wrap; gap: 12px; }
+.account-toolbar { display: flex; gap: 10px; margin-left: auto; }
+.overview-select { width: 170px; }
+.account-platform-tabs { width: 100%; justify-content: flex-end; }
+.city-overview-summary {
+  margin-bottom: 16px;
+  padding: 16px;
+  border: 1px solid #c7d2fe;
+  border-radius: 14px;
+  background: linear-gradient(135deg, #f8faff, #eef2ff);
+}
+.city-summary-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 14px; }
+.city-summary-head > div { display: flex; flex-direction: column; gap: 4px; }
+.city-summary-head strong { color: #1e293b; font-size: 16px; }
+.city-summary-head span { color: #64748b; font-size: 12px; }
+.clear-city-filter { border: 0; background: transparent; color: #4f46e5; font-size: 12px; font-weight: 600; cursor: pointer; }
+.city-summary-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; }
+.city-summary-grid > div { padding: 12px; border-radius: 10px; background: #fff; border: 1px solid #e0e7ff; }
+.city-summary-grid span { display: block; margin-bottom: 6px; color: #64748b; font-size: 11px; }
+.city-summary-grid strong { color: #312e81; font-size: 19px; font-variant-numeric: tabular-nums; }
 
 .account-cards {
   display: grid;
@@ -1535,6 +1750,24 @@ if (typeof window !== 'undefined') window.addEventListener('resize', handleResiz
   font-weight: 600;
   width: fit-content;
 }
+
+.account-period {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  margin: -4px 0 12px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: #f8fafc;
+  color: #64748b;
+  font-size: 11px;
+  line-height: 1.45;
+}
+.account-period span:first-child { color: #475569; font-weight: 600; }
+.row-actions { text-align: center; white-space: nowrap; }
+.muted-action { color: #94a3b8; font-size: 12px; }
+.entry-mode-tabs.locked { opacity: .72; }
+.entry-mode-tabs.locked .mode-tab { cursor: not-allowed; }
 
 .account-stats-grid {
   display: grid;
@@ -1822,12 +2055,17 @@ if (typeof window !== 'undefined') window.addEventListener('resize', handleResiz
 
 /* Responsive */
 @media (max-width: 1280px) {
-  .kpi-grid { grid-template-columns: 1.4fr 1fr 1fr; }
+  .kpi-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
   .charts-grid { grid-template-columns: 1fr; }
   .donut-wrap { grid-template-columns: 1fr; }
   .donut-area { margin: 0 auto; }
 }
 @media (max-width: 768px) {
+  .record-type-summary { grid-template-columns: repeat(2, 1fr); }
+  .account-toolbar { width: 100%; margin-left: 0; }
+  .overview-select { flex: 1; width: auto; }
+  .account-platform-tabs { justify-content: flex-start; overflow-x: auto; }
+  .city-summary-grid { grid-template-columns: repeat(2, 1fr); }
   .hero-grid { grid-template-columns: 1fr; }
   .hero-right { align-items: flex-start; }
   .kpi-grid { grid-template-columns: 1fr 1fr; }
@@ -1854,7 +2092,7 @@ if (typeof window !== 'undefined') window.addEventListener('resize', handleResiz
     line-height: 1.55;
   }
   .hero-pills,
-  .range-group,
+  .overview-date-filter,
   .action-group,
   .tabs,
   .legend-group {
@@ -1865,12 +2103,15 @@ if (typeof window !== 'undefined') window.addEventListener('resize', handleResiz
     -webkit-overflow-scrolling: touch;
   }
   .hero-pills > *,
-  .range-group > *,
+  .overview-date-filter > *,
   .action-group > *,
   .tabs > *,
   .legend-group > * {
     flex: 0 0 auto;
   }
+  .overview-date-filter { align-items: flex-start; }
+  .overview-date-filter :deep(.el-date-editor) { width: 280px; }
+  .period-scope-bar { align-items: flex-start; flex-direction: column; gap: 4px; }
   .kpi-grid {
     grid-template-columns: 1fr;
   }

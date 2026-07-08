@@ -1,5 +1,5 @@
 <template>
-  <div class="configurable-grid" :style="{ '--layout-columns': layout.columns || 12 }">
+  <div class="configurable-grid" :class="{ 'compact-data-overview': pageKey === 'dataOverview' }" :style="{ '--layout-columns': layout.columns || 12 }">
     <div v-if="activeBindingRows.length" class="layout-binding-status">
       <span>页面布局控制中</span>
       <b v-for="item in activeBindingRows" :key="item.field">
@@ -134,14 +134,18 @@ const safeHeight = (height) => {
   return value > 0 ? Math.min(1200, Math.max(120, value)) : 0
 }
 const moduleStyle = (module) => {
-  const height = safeHeight(module.height)
+  const forceAutoHeight = props.pageKey === 'dataOverview' && ['page-head', 'summary-row'].includes(module.key)
+  const height = forceAutoHeight ? 0 : safeHeight(module.height)
   return {
     gridColumn: `span ${safeSpan(module.span)}`,
     minHeight: height ? `${height}px` : undefined,
     height: height ? `${height}px` : undefined
   }
 }
-const hasFixedHeight = (module) => safeHeight(module.height) > 0
+const hasFixedHeight = (module) => {
+  if (props.pageKey === 'dataOverview' && ['page-head', 'summary-row'].includes(module.key)) return false
+  return safeHeight(module.height) > 0
+}
 const slotName = (module) => module.componentKey || module.key
 const hasBindingValue = (value) => {
   if (Array.isArray(value)) return value.length > 0
@@ -268,6 +272,7 @@ watch(() => props.pageKey, () => {
   align-items: stretch;
   justify-items: stretch;
 }
+.configurable-grid.compact-data-overview { gap: 12px; }
 .layout-binding-status {
   grid-column: 1 / -1;
   display: flex;

@@ -153,6 +153,55 @@ test('accounts different types', async (t) => {
   assert.ok(listData.data.length >= 3);
 });
 
+test('admin update of a city-created account persists after reloading cities', async (t) => {
+  const server = await listen();
+  t.after(() => {
+    server.close();
+    cleanupTestDb();
+  });
+  const base = `http://127.0.0.1:${server.address().port}/api`;
+  const token = await getAuthToken(base);
+
+  const createCityRes = await fetch(`${base}/cities`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+    body: JSON.stringify({ name: '持久化测试城市', status: 'active' })
+  });
+  const cityId = (await createCityRes.json()).data.id;
+  const createAccountRes = await fetch(`${base}/accounts`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+    body: JSON.stringify({ name: '城市新增账号', platform: 'kuaishou', type: 'city', city_id: cityId })
+  });
+  const accountId = (await createAccountRes.json()).data.id;
+
+  const updateRes = await fetch(`${base}/accounts/${accountId}`, {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+    body: JSON.stringify({
+      name: '管理端修改后的账号',
+      platform: 'weixin',
+      platform_account: 'https://example.com/updated',
+      platform_label: '视频号',
+      account_type: '官方号',
+      type: 'city',
+      city_id: cityId,
+      status: 'active'
+    })
+  });
+  assert.equal(updateRes.status, 200);
+
+  const citiesRes = await fetch(`${base}/cities`, {
+    headers: { authorization: `Bearer ${token}` }
+  });
+  const cities = (await citiesRes.json()).data;
+  const saved = cities.find(city => city.id === cityId).accounts.find(account => account.id === accountId);
+  assert.equal(saved.name, '管理端修改后的账号');
+  assert.equal(saved.platform, 'weixin');
+  assert.equal(saved.url, 'https://example.com/updated');
+  assert.equal(saved.type_note, '官方号');
+});
+
 test('accounts validation', async (t) => {
   const server = await listen();
   t.after(() => {

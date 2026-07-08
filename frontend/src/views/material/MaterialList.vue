@@ -295,10 +295,12 @@ import cos from '@/utils/cos'
 import ConfigurablePageRenderer from '@/layout-builder/ConfigurablePageRenderer.vue'
 import { useLayoutBindings } from '@/layout-builder/layoutBindings'
 import { layoutModuleCatalog } from '@/layout-builder/moduleCatalog'
+import { usePageSearch } from '@/composables/usePageSearch'
 
 // ==================== STATE ====================
 const materialListLayoutModules = layoutModuleCatalog.materialList
 const { bindings: layoutBindings } = useLayoutBindings('materialList')
+const { matchesPageSearch } = usePageSearch()
 const loading = ref(false)
 const fileList = ref([])
 const videoTypes = ref([])
@@ -341,6 +343,7 @@ const filteredFileList = computed(() => {
   if (filterType.value) {
     list = list.filter(f => f.type_name === filterType.value)
   }
+  list = list.filter(file => matchesPageSearch(file.name, file.type_name, file.url, file.cos_key, file.date, file.uploaded_at))
   return list
 })
 

@@ -124,11 +124,13 @@ import { createAccount, getAccounts, updateAccount, deleteAccount } from '@/api'
 import ConfigurablePageRenderer from '@/layout-builder/ConfigurablePageRenderer.vue'
 import { layoutModuleCatalog } from '@/layout-builder/moduleCatalog'
 import { useLayoutBindings } from '@/layout-builder/layoutBindings'
+import { usePageSearch } from '@/composables/usePageSearch'
 
 const otherAccountsLayoutModules = layoutModuleCatalog.otherAccounts
 const { bindings: layoutBindings } = useLayoutBindings('otherAccounts')
 const accounts = ref([])
 const filter = reactive({ type: '', status: '' })
+const { matchesPageSearch } = usePageSearch()
 const typeList = ['测试', '备用', '个人', '官方']
 const statusLabel = (s) => ({ active: '活跃', pending: '待处理', paused: '暂停' }[s] || s)
 
@@ -161,7 +163,7 @@ const pausedCount = computed(() => accounts.value.filter(a => a.status === 'paus
 const filteredAccounts = computed(() => accounts.value.filter((account) => {
   const typeMatched = filter.type ? account.type === filter.type : true
   const statusMatched = filter.status ? account.status === filter.status : true
-  return typeMatched && statusMatched
+  return typeMatched && statusMatched && matchesPageSearch(account.name, account.type, account.platform, account.platform_label, account.owner, account.url, account.remark, statusLabel(account.status))
 }))
 
 const normalizeStatus = (value) => ({ inactive: 'paused', all: '' }[value] || value || '')

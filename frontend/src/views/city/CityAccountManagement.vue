@@ -79,6 +79,9 @@
           <span class="status-badge" :class="'st-' + account.status">
             {{ statusLabel(account.status) }}
           </span>
+          <button v-if="account.qrcode_url" class="mini-btn" title="查看二维码" @click="openQrcode(account)">
+            <el-icon><Picture /></el-icon>
+          </button>
           <button class="mini-btn" @click="openEditDialog(account)">
             <el-icon><EditPen /></el-icon>
           </button>
@@ -138,6 +141,23 @@
             <input v-model="form.platform_account" class="text-input" placeholder="https://..." />
           </div>
           <div class="form-field">
+            <label>账号二维码（可选）</label>
+            <div class="qrcode-uploader">
+              <div v-if="form.qrcode_url" class="qrcode-preview">
+                <img :src="form.qrcode_url" alt="二维码" />
+                <div class="qrcode-actions">
+                  <button class="mini-btn" @click="removeQrcode"><el-icon><Close /></el-icon> 移除</button>
+                </div>
+              </div>
+              <label v-else class="qrcode-upload-box" for="city-qrcode-upload">
+                <el-icon><Upload /></el-icon>
+                <span>点击上传二维码</span>
+                <span class="hint">支持 png、jpg、webp，最大 5MB</span>
+                <input id="city-qrcode-upload" type="file" accept="image/*" hidden @change="handleQrcodeUpload" />
+              </label>
+            </div>
+          </div>
+          <div class="form-field">
             <label>状态</label>
             <select v-model="form.status" class="select-input">
               <option value="active">活跃</option>
@@ -158,15 +178,49 @@
         </div>
       </div>
     </div>
+
+    <!-- 二维码预览弹窗 -->
+    <div class="dialog-overlay" v-if="showQrcodeDialog" @click.self="closeQrcodeDialog">
+      <div class="dialog-card qrcode-card">
+        <div class="dialog-head">
+          <div>
+            <h3>{{ qrcodeAccount?.name || '账号二维码' }}</h3>
+            <p>扫码可直接访问账号</p>
+          </div>
+          <button class="icon-close" @click="closeQrcodeDialog"><el-icon><Close /></el-icon></button>
+        </div>
+        <div class="dialog-body">
+          <div class="qrcode-dialog-img">
+            <img :src="qrcodeAccount?.qrcode_url" alt="账号二维码" />
+          </div>
+          <div class="qrcode-dialog-info">
+            <div class="qrcode-info-row">
+              <span class="qrcode-info-label">平台</span>
+              <span class="qrcode-info-value">{{ qrcodeAccount?.platform_label || getPlatformName(qrcodeAccount?.platform) }}</span>
+            </div>
+            <div class="qrcode-info-row">
+              <span class="qrcode-info-label">账号名称</span>
+              <span class="qrcode-info-value">{{ qrcodeAccount?.name }}</span>
+            </div>
+            <div v-if="qrcodeAccount?.platform_account" class="qrcode-info-row">
+              <span class="qrcode-info-label">主页链接</span>
+              <a :href="qrcodeAccount.platform_account" target="_blank" class="qrcode-info-value link">{{ qrcodeAccount.platform_account }}</a>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { Picture, Upload, Close, Plus, EditPen, Delete, Link, UserFilled } from '@element-plus/icons-vue'
 import IconFont from '@/components/IconFont.vue'
-import { getAccounts, createAccount, updateAccount, deleteAccount as delAccount } from '@/api'
+import { getAccounts, createAccount, updateAccount, deleteAccount as delAccount, uploadQrcode } from '@/api'
 import { getPlatformName, platformBgColors } from '@/utils/iconMapping'
+import { usePageSearch } from '@/composables/usePageSearch'
 
 const platformOptions = [
   { key: 'douyin', label: '抖音' },
@@ -180,6 +234,7 @@ const platformOptions = [
 
 const accounts = ref([])
 const activePlatform = ref('all')
+const { matchesPageSearch } = usePageSearch()
 const showDialog = ref(false)
 const editingAccount = ref(null)
 
@@ -188,6 +243,7 @@ const form = ref({
   platform_label: '',
   name: '',
   platform_account: '',
+  qrcode_url: '',
   status: 'active',
   remark: ''
 })
@@ -241,13 +297,12 @@ const platformTabs = computed(() => {
 
 // 过滤后的账号列表
 const filteredAccounts = computed(() => {
-  if (activePlatform.value === 'all') return accounts.value
   return accounts.value.filter(acc => {
     const p = acc.platform || 'other'
-    if (activePlatform.value === 'other') {
-      return ['other', 'weibo', 'bilibili'].includes(p)
-    }
-    return p === activePlatform.value
+    const platformMatched = activePlatform.value === 'all' || (activePlatform.value === 'other'
+      ? ['other', 'weibo', 'bilibili'].includes(p)
+      : p === activePlatform.value)
+    return platformMatched && matchesPageSearch(acc.name, acc.platform, acc.platform_label, acc.platform_account, acc.url, acc.remark)
   })
 })
 
@@ -264,6 +319,7 @@ const openAddDialog = () => {
     platform_label: '',
     name: '',
     platform_account: '',
+    qrcode_url: '',
     status: 'active',
     remark: ''
   }
@@ -278,6 +334,7 @@ const openEditDialog = (account) => {
     platform_label: account.platform_label || '',
     name: account.name || '',
     platform_account: account.platform_account || '',
+    qrcode_url: account.qrcode_url || '',
     status: account.status || 'active',
     remark: account.remark || ''
   }
@@ -328,6 +385,57 @@ const deleteAccount = async (account) => {
       ElMessage.error(error?.message || '删除失败')
     }
   }
+}
+
+// === 二维码 ===
+const showQrcodeDialog = ref(false)
+const qrcodeAccount = ref(null)
+const openQrcode = (account) => {
+  qrcodeAccount.value = account
+  showQrcodeDialog.value = true
+}
+const closeQrcodeDialog = () => {
+  showQrcodeDialog.value = false
+  qrcodeAccount.value = null
+}
+
+const handleQrcodeUpload = async (e) => {
+  const file = e.target.files?.[0]
+  if (!file) return
+  if (!file.type.startsWith('image/')) {
+    ElMessage.warning('请上传图片文件')
+    e.target.value = ''
+    return
+  }
+  if (file.size > 5 * 1024 * 1024) {
+    ElMessage.warning('图片大小不能超过 5MB')
+    e.target.value = ''
+    return
+  }
+  try {
+    const reader = new FileReader()
+    reader.onload = async () => {
+      try {
+        const res = await uploadQrcode({
+          filename: file.name,
+          mime: file.type,
+          data: reader.result
+        })
+        form.value.qrcode_url = res.url
+        ElMessage.success('二维码上传成功')
+      } catch {
+        ElMessage.error('上传失败，请重试')
+      }
+    }
+    reader.readAsDataURL(file)
+  } catch {
+    ElMessage.error('读取文件失败')
+  }
+  e.target.value = ''
+}
+
+const removeQrcode = () => {
+  form.value.qrcode_url = ''
 }
 
 // 状态标签
@@ -871,4 +979,87 @@ onMounted(() => {
     justify-content: flex-end;
   }
 }
+
+/* 二维码上传 */
+.qrcode-uploader {
+  width: 100%;
+}
+.qrcode-upload-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  padding: 28px 20px;
+  border: 2px dashed #c7d2fe;
+  border-radius: 12px;
+  background: #faf5ff;
+  cursor: pointer;
+  transition: all 0.18s;
+  color: #6366f1;
+  box-sizing: border-box;
+}
+.qrcode-upload-box:hover {
+  border-color: #6366f1;
+  background: #f5f3ff;
+  transform: translateY(-1px);
+}
+.qrcode-upload-box .el-icon { font-size: 28px; }
+.qrcode-upload-box span { font-size: 13px; font-weight: 600; }
+.qrcode-upload-box .hint { font-size: 11.5px; color: #94a3b8; font-weight: 400; }
+.qrcode-preview {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 16px;
+  border: 1px solid #e0e7ff;
+  border-radius: 12px;
+  background: #fafbff;
+}
+.qrcode-preview img {
+  width: 96px;
+  height: 96px;
+  object-fit: contain;
+  border-radius: 8px;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+}
+.qrcode-actions { display: flex; flex-direction: column; gap: 8px; }
+
+/* 二维码预览弹窗 */
+.qrcode-card { width: 360px; }
+.qrcode-dialog-img {
+  display: flex;
+  justify-content: center;
+  padding: 20px 0;
+}
+.qrcode-dialog-img img {
+  width: 240px;
+  height: 240px;
+  object-fit: contain;
+  border-radius: 12px;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.08);
+}
+.qrcode-dialog-info {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px;
+  background: #f8fafc;
+  border-radius: 10px;
+}
+.qrcode-info-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+}
+.qrcode-info-label { color: #64748b; font-weight: 500; }
+.qrcode-info-value { color: #1e293b; font-weight: 600; text-align: right; word-break: break-all; }
+.qrcode-info-value.link { color: #6366f1; text-decoration: none; }
+.qrcode-info-value.link:hover { color: #4f46e5; text-decoration: underline; }
 </style>

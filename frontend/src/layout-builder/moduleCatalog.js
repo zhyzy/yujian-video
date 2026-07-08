@@ -5,6 +5,7 @@ export const layoutPages = [
   { key: 'videoTypes', scope: 'admin', label: '类型管理', description: '素材类型配置和分类管理' },
   { key: 'publishCalendar', scope: 'admin', label: '发布日历', description: '月度排期、平台统计和日期详情' },
   { key: 'publishList', scope: 'admin', label: '发布计划', description: '发布指标、筛选条件、计划矩阵和提示区' },
+  { key: 'distributionRecords', scope: 'admin', label: '下发记录', description: '城市下发记录、筛选与编辑管理' },
   { key: 'publishLedger', scope: 'admin', label: '发布台账', description: '发布记录、统计筛选和执行登记' },
   { key: 'cityBoard', scope: 'admin', label: '城市看板', description: '城市分发、状态统计和下发记录' },
   { key: 'cityList', scope: 'admin', label: '城市管理', description: '城市列表、筛选和运营配置' },
@@ -14,6 +15,7 @@ export const layoutPages = [
   { key: 'cityAccounts', scope: 'admin', label: '城市账号', description: '城市账号列表和配置项' },
   { key: 'otherAccounts', scope: 'admin', label: '其他账号', description: '其他账号列表和配置项' },
   { key: 'accountManagement', scope: 'admin', label: '系统账号', description: '后台登录账号、角色和权限维护' },
+  { key: 'operationLogs', scope: 'admin', label: '操作日志', description: '系统操作行为审计与日志查询' },
   { key: 'cityWorkbench', scope: 'city', label: '城市工作台', description: '城市账号登录后的任务与提醒页面' },
   { key: 'cityTasks', scope: 'city', label: '我的任务', description: '城市账号任务列表和处理入口' },
   { key: 'cityPublishSubmit', scope: 'city', label: '发布填报', description: '城市账号发布结果填报页面' },
@@ -57,6 +59,7 @@ export const layoutModuleCatalog = {
   ],
   publishCalendar: [
     { key: 'page-head', title: '页面头部', span: 12, visible: true },
+    { key: 'city-board', title: '城市发布看板', span: 12, visible: true },
     { key: 'legend-strip', title: '平台统计', span: 12, visible: true },
     { key: 'calendar-wrap', title: '发布日历', span: 8, visible: true },
     { key: 'detail-panel', title: '日期详情', span: 4, visible: true }
@@ -73,6 +76,11 @@ export const layoutModuleCatalog = {
     { key: 'summary-row', title: '台账指标', span: 12, visible: true },
     { key: 'toolbar', title: '筛选工具栏', span: 12, visible: true },
     { key: 'ledger-table', title: '发布台账表格', span: 12, visible: true }
+  ],
+  distributionRecords: [
+    { key: 'page-head', title: '页面头部', span: 12, visible: true },
+    { key: 'filter-panel', title: '筛选区', span: 12, visible: true },
+    { key: 'distribution-table', title: '下发记录表格', span: 12, visible: true }
   ],
   cityBoard: [
     { key: 'page-head', title: '页面头部', span: 12, visible: true },
@@ -119,6 +127,11 @@ export const layoutModuleCatalog = {
     { key: 'page-head', title: '页面头部', span: 12, visible: true },
     { key: 'toolbar', title: '账号操作区', span: 12, visible: true },
     { key: 'user-table', title: '系统账号列表', span: 12, visible: true }
+  ],
+  operationLogs: [
+    { key: 'page-head', title: '页面头部', span: 12, visible: true },
+    { key: 'filter-panel', title: '筛选区', span: 12, visible: true },
+    { key: 'log-table', title: '操作日志列表', span: 12, visible: true }
   ],
   cityTasks: [
     { key: 'page-head', title: '页面头部', span: 12, visible: true },

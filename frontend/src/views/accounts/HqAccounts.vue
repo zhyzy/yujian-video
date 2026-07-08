@@ -265,6 +265,7 @@ import { createAccount, getAccounts, getAccountPublishStats, updateAccount, dele
 import ConfigurablePageRenderer from '@/layout-builder/ConfigurablePageRenderer.vue'
 import { layoutModuleCatalog } from '@/layout-builder/moduleCatalog'
 import { useLayoutBindings } from '@/layout-builder/layoutBindings'
+import { usePageSearch } from '@/composables/usePageSearch'
 
 const hqAccountsLayoutModules = layoutModuleCatalog.hqAccounts
 const { bindings: layoutBindings } = useLayoutBindings('hqAccounts')
@@ -274,6 +275,7 @@ const showDialog = ref(false)
 const editing = ref(false)
 const list = ref([])
 const filter = reactive({ platform: '' })
+const { matchesPageSearch } = usePageSearch()
 const publishStats = ref({ published: 0, pending: 0 })
 const uploadingAvatar = ref(false)
 const uploadingOwnerAvatar = ref(false)
@@ -307,7 +309,10 @@ const emptyForm = () => ({
 const form = reactive(emptyForm())
 
 const filteredList = computed(() => {
-  return filter.platform ? list.value.filter(row => row.platform === filter.platform) : list.value
+  return list.value.filter(row => {
+    if (filter.platform && row.platform !== filter.platform) return false
+    return matchesPageSearch(row.name, row.platform, platformLabel(row.platform), row.account_type, row.url, row.cert, row.owner, row.editor, row.purpose, row.remark)
+  })
 })
 const activeVideoTypes = computed(() => videoTypes.value.filter(item => item.status !== 'inactive' && item.status !== 'archived'))
 

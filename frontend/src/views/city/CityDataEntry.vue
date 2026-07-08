@@ -69,8 +69,8 @@
                 </div>
               </div>
               <div class="record-right">
-                <span class="record-date-label">{{ row.date }}</span>
-                <span v-if="row.city_remark" class="record-remark">{{ row.city_remark }}</span>
+                <span class="record-date-label">{{ recordPeriodText(row) }}</span>
+                <span class="record-remark">{{ row.report_batch_id ? '区间汇总总数据' : (row.city_remark || '单日数据') }}</span>
               </div>
             </div>
 
@@ -164,9 +164,9 @@
             </el-select>
           </div>
           <div class="form-item">
-            <label>{{ isEditing ? '日期' : '时间区间' }}</label>
+            <label>{{ isEditing && !isEditingRange ? '日期' : '统计区间' }}</label>
             <el-date-picker
-              v-if="isEditing"
+              v-if="isEditing && !isEditingRange"
               v-model="dataForm.date"
               type="date"
               value-format="YYYY-MM-DD"
@@ -184,7 +184,7 @@
               style="width: 100%"
             />
           </div>
-          <div v-if="!isEditing && dataForm.dateRange && dataForm.dateRange.length === 2" class="range-summary">
+          <div v-if="dataForm.dateRange && dataForm.dateRange.length === 2" class="range-summary">
             <el-icon><InfoFilled /></el-icon>
             <span>已选择 {{ dataForm.dateRange[0] }} 至 {{ dataForm.dateRange[1] }}，共 {{ dateRangeDays }} 天</span>
           </div>
@@ -223,9 +223,6 @@
               <el-input-number v-model="dataForm.deal_amount" :min="0" :precision="2" style="width: 100%" :placeholder="isEditing ? '成交金额' : '区间总金额'" />
             </div>
           </div>
-          <div v-if="!isEditing && dataForm.dateRange && dataForm.dateRange.length === 2 && (dataForm.play_count || dataForm.like_count)" class="avg-hint">
-            <span>区间均值：日均播放 {{ formatNum(avgViews) }}，日均点赞 {{ formatNum(avgLikes) }}</span>
-          </div>
         </div>
       </div>
       <template #footer>
@@ -246,7 +243,7 @@ import IconFont from '@/components/IconFont.vue'
 import ConfigurablePageRenderer from '@/layout-builder/ConfigurablePageRenderer.vue'
 import { layoutModuleCatalog } from '@/layout-builder/moduleCatalog'
 import { useLayoutBindings } from '@/layout-builder/layoutBindings'
-import { getCityDistributions, updateCityDistribution, createCityDistribution, deleteCityDistribution, getAccounts } from '@/api'
+import { getCityDistributions, updateCityDistribution, deleteCityDistribution, getAccounts, getDataTracks, saveRangeDataReport, deleteDataReportBatch } from '@/api'
 import dayjs from 'dayjs'
 
 const cityDataEntryLayoutModules = layoutModuleCatalog.cityDataEntry
@@ -305,6 +302,16 @@ const formatNum = (n) => {
   if (v >= 1000) return v.toLocaleString('zh-CN')
   return Math.round(v).toString()
 }
+const recordPeriodText = (row) => {
+  if (row.period_start && row.period_end) return `${row.period_start} 至 ${row.period_end}`
+  const matched = String(row.city_remark || '').match(/(\d{4}-\d{2}-\d{2})\s*至\s*(\d{4}-\d{2}-\d{2})/)
+  return matched ? `${matched[1]} 至 ${matched[2]}` : (row.date || '-')
+}
+const legacyPeriod = (row) => {
+  const matched = String(row?.city_remark || '').match(/(\d{4}-\d{2}-\d{2})\s*至\s*(\d{4}-\d{2}-\d{2})/)
+  return matched ? [matched[1], matched[2]] : null
+}
+const isEditingRange = computed(() => Boolean(currentData.value?.report_batch_id || legacyPeriod(currentData.value)))
 
 // 筛选后的记录
 const showHistory = ref(false)
@@ -382,6 +389,22 @@ const applyQuickRange = (q) => {
   dataForm.dateRange = [q.start(), q.end()]
 }
 
+const saveCityRangeReport = async (payload) => {
+  try {
+    return await saveRangeDataReport(payload)
+  } catch (error) {
+    if (error?.response?.status !== 409) throw error
+    const overlaps = error.response?.data?.data?.overlaps || []
+    const periods = overlaps.map(item => `${item.period_start} 至 ${item.period_end}`).join('、')
+    await ElMessageBox.confirm(
+      `所选周期与已有数据重叠${periods ? `（${periods}）` : ''}。继续后将覆盖重叠周期的数据，是否继续？`,
+      '确认覆盖数据',
+      { type: 'warning', confirmButtonText: '覆盖原数据', cancelButtonText: '取消' }
+    )
+    return saveRangeDataReport({ ...payload, overwrite: true })
+  }
+}
+
 // 清除筛选
 const clearFilters = () => {
   filterPlatform.value = ''
@@ -414,11 +437,41 @@ const applyLayoutBindings = (bindings = {}) => {
 const loadData = async () => {
   loading.value = true
   try {
-    const [distData, accountData] = await Promise.all([
+    const [distData, trackData, accountData] = await Promise.all([
       getCityDistributions({ pageSize: 500 }),
+      getDataTracks({ range: 'year', pageSize: 1000 }),
       getAccounts({ type: 'city', cityId: currentUser.value.city_id })
     ])
-    allRecords.value = distData.list || []
+    const batches = new Map()
+    for (const row of (trackData.list || [])) {
+      if (!row.report_batch_id || row.report_source !== 'city_manual') continue
+      if (!batches.has(row.report_batch_id)) {
+        batches.set(row.report_batch_id, {
+          id: row.id,
+          report_batch_id: row.report_batch_id,
+          period_start: row.period_start,
+          period_end: row.period_end,
+          date: row.period_start || row.date,
+          account_id: row.account_id,
+          account_name: row.account_name,
+          platform: row.platform,
+          publish_platform: row.platform,
+          video_title: row.video_title,
+          source: 'city_manual',
+          play_count: 0, like_count: 0, comment_count: 0,
+          favorite_count: 0, share_count: 0, deal_count: 0, deal_amount: 0
+        })
+      }
+      const batch = batches.get(row.report_batch_id)
+      batch.play_count += Number(row.views || row.play_count || 0)
+      batch.like_count += Number(row.likes || row.like_count || 0)
+      batch.comment_count += Number(row.comments || row.comment_count || 0)
+      batch.favorite_count += Number(row.favorites || row.favorite_count || 0)
+      batch.share_count += Number(row.shares || row.share_count || 0)
+      batch.deal_count += Number(row.deals || row.deal_count || 0)
+      batch.deal_amount += Number(row.revenue || row.deal_amount || 0)
+    }
+    allRecords.value = [...(distData.list || []), ...batches.values()]
     cityAccounts.value = Array.isArray(accountData) ? accountData : (accountData?.list || [])
   } catch (e) {
     allRecords.value = []
@@ -460,7 +513,7 @@ const openEditData = (row) => {
   Object.assign(dataForm, {
     platform: row.publish_platform || row.platform || 'douyin',
     account_id: acc?.id || '',
-    date: row.date || dayjs().format('YYYY-MM-DD'),
+    date: row.period_start || row.date || dayjs().format('YYYY-MM-DD'),
     play_count: row.play_count || 0,
     like_count: row.like_count || 0,
     comment_count: row.comment_count || 0,
@@ -468,7 +521,7 @@ const openEditData = (row) => {
     share_count: row.share_count || 0,
     deal_count: row.deal_count || 0,
     deal_amount: row.deal_amount || 0,
-    dateRange: null
+    dateRange: row.report_batch_id ? [row.period_start, row.period_end] : legacyPeriod(row)
   })
   dataDialogVisible.value = true
 }
@@ -487,13 +540,34 @@ const submitData = async () => {
   if (isEditing.value) {
     saving.value = true
     try {
-      await updateCityDistribution(currentData.value.id, {
-        ...dataForm,
-        account_id: dataForm.account_id,
-        publish_platform: dataForm.platform,
-        publish_account_name: accountName,
-        date: dataForm.date
-      })
+      if (isEditingRange.value) {
+        if (!dataForm.dateRange || dataForm.dateRange.length !== 2) {
+          return ElMessage.warning('请选择完整统计区间')
+        }
+        await saveCityRangeReport({
+          period_start: dataForm.dateRange[0],
+          period_end: dataForm.dateRange[1],
+          replace_batch_id: currentData.value.report_batch_id,
+          account_id: dataForm.account_id,
+          play_count: dataForm.play_count,
+          like_count: dataForm.like_count,
+          comment_count: dataForm.comment_count,
+          favorite_count: dataForm.favorite_count,
+          share_count: dataForm.share_count,
+          deal_count: dataForm.deal_count,
+          deal_amount: dataForm.deal_amount,
+          video_title: currentData.value.video_title
+        })
+        if (!currentData.value.report_batch_id) await deleteCityDistribution(currentData.value.id)
+      } else {
+        await updateCityDistribution(currentData.value.id, {
+          ...dataForm,
+          account_id: dataForm.account_id,
+          publish_platform: dataForm.platform,
+          publish_account_name: accountName,
+          date: dataForm.date
+        })
+      }
       ElMessage.success('数据已更新')
       dataDialogVisible.value = false
       loadData()
@@ -515,12 +589,10 @@ const submitData = async () => {
   saving.value = true
   try {
     const [startDate, endDate] = dataForm.dateRange
-    await createCityDistribution({
+    await saveCityRangeReport({
       account_id: dataForm.account_id,
-      publish_platform: dataForm.platform,
-      publish_account_name: accountName,
-      date: startDate,
-      actual_publish_time: startDate,
+      period_start: startDate,
+      period_end: endDate,
       play_count: dataForm.play_count,
       like_count: dataForm.like_count,
       comment_count: dataForm.comment_count,
@@ -528,8 +600,7 @@ const submitData = async () => {
       share_count: dataForm.share_count,
       deal_count: dataForm.deal_count,
       deal_amount: dataForm.deal_amount,
-      status: 'published',
-      city_remark: `区间汇总 ${startDate} 至 ${endDate}`
+      video_title: `区间汇总 ${startDate} 至 ${endDate}`
     })
 
     ElMessage.success('区间数据已成功录入')
@@ -550,7 +621,8 @@ const handleDelete = async (row) => {
       cancelButtonText: '取消',
       type: 'warning'
     })
-    await deleteCityDistribution(row.id)
+    if (row.report_batch_id) await deleteDataReportBatch(row.report_batch_id)
+    else await deleteCityDistribution(row.id)
     ElMessage.success('删除成功')
     loadData()
   } catch (e) {

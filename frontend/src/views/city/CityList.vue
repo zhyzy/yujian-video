@@ -219,6 +219,7 @@ import { createCity, deleteCity, getAccounts, getCities, updateCity } from '@/ap
 import ConfigurablePageRenderer from '@/layout-builder/ConfigurablePageRenderer.vue'
 import { useLayoutBindings } from '@/layout-builder/layoutBindings'
 import { layoutModuleCatalog } from '@/layout-builder/moduleCatalog'
+import { usePageSearch } from '@/composables/usePageSearch'
 
 const cityListLayoutModules = layoutModuleCatalog.cityList
 const { bindings: layoutBindings } = useLayoutBindings('cityList')
@@ -227,9 +228,12 @@ const saving = ref(false)
 const showDialog = ref(false)
 const editing = ref(false)
 const keyword = ref('')
+const { pageSearchKeyword } = usePageSearch()
 const filter = ref('all')
 const cities = ref([])
 const accounts = ref([])
+
+watch(pageSearchKeyword, value => { keyword.value = value }, { immediate: true })
 
 const colorSet = ['#6366f1', '#ec4899', '#f59e0b', '#10b981', '#0ea5e9', '#8b5cf6', '#ef4444', '#14b8a6']
 

@@ -94,6 +94,15 @@ test('data dashboard summarizes manual and city submitted metrics', async (t) =>
   });
   assert.equal(citySubmitted.res.status, 200);
 
+  const hqPublished = await requestJson(base, '/schedules', token, {
+    method: 'POST',
+    body: JSON.stringify({
+      date: '2026-06-21', time: '10:00', account_id: accountId,
+      video_title: '总部发布视频', status: 'published'
+    })
+  });
+  assert.equal(hqPublished.res.status, 200);
+
   const dashboard = await requestJson(base, '/data-dashboard?dateFrom=2026-06-21&dateTo=2026-06-21', token);
   assert.equal(dashboard.res.status, 200);
   assert.equal(dashboard.payload.data.summary.total_plays, 300);
@@ -102,6 +111,10 @@ test('data dashboard summarizes manual and city submitted metrics', async (t) =>
   assert.equal(dashboard.payload.data.summary.total_deals, 3);
   assert.equal(dashboard.payload.data.summary.total_amount, 276);
   assert.equal(dashboard.payload.data.summary.total_videos, 2);
+  assert.equal(dashboard.payload.data.summary.distributed_videos, 1);
+  assert.equal(dashboard.payload.data.summary.published_hq_videos, 1);
+  assert.equal(dashboard.payload.data.summary.published_city_videos, 1);
+  assert.equal(dashboard.payload.data.summary.published_videos, 2);
 
   const trend = dashboard.payload.data.trend.find(item => item.date === '2026-06-21' && item.platform === 'douyin');
   assert.ok(trend);
@@ -112,4 +125,53 @@ test('data dashboard summarizes manual and city submitted metrics', async (t) =>
   const tracks = await requestJson(base, '/data-tracks?dateFrom=2026-06-21&dateTo=2026-06-21&pageSize=20', token);
   assert.equal(tracks.res.status, 200);
   assert.equal(tracks.payload.data.total, 2);
+
+  const emptyPublished = await requestJson(base, '/city-distributions', token, {
+    method: 'POST',
+    body: JSON.stringify({
+      date: '2026-06-21', actual_publish_time: '2026-06-21', city_id: cityId,
+      account_id: accountId, video_title: '尚未录入数据的视频', status: 'published'
+    })
+  });
+  assert.equal(emptyPublished.res.status, 200);
+  const detailRows = await requestJson(base, '/data-report-details?dateFrom=2026-06-21&dateTo=2026-06-21&pageSize=20', token);
+  assert.equal(detailRows.res.status, 200);
+  assert.equal(detailRows.payload.data.total, 2);
+  assert.ok(detailRows.payload.data.list.some(item => item.video_title === '城市端填报视频'));
+  assert.ok(!detailRows.payload.data.list.some(item => item.video_title === '尚未录入数据的视频'));
+
+  const rangePayload = {
+    period_start: '2026-06-22',
+    period_end: '2026-06-24',
+    account_id: accountId,
+    play_count: 1000,
+    like_count: 10,
+    comment_count: 2,
+    deal_count: 1,
+    deal_amount: 10.01
+  };
+  const firstRange = await requestJson(base, '/data-tracks/range-report', token, {
+    method: 'POST', body: JSON.stringify(rangePayload)
+  });
+  assert.equal(firstRange.res.status, 200);
+  assert.equal(firstRange.payload.data.replaced, false);
+
+  const replacement = await requestJson(base, '/data-tracks/range-report', token, {
+    method: 'POST', body: JSON.stringify({ ...rangePayload, play_count: 1200 })
+  });
+  assert.equal(replacement.res.status, 200);
+  assert.equal(replacement.payload.data.replaced, true);
+
+  const replacedDashboard = await requestJson(base, '/data-dashboard?dateFrom=2026-06-22&dateTo=2026-06-24', token);
+  assert.equal(replacedDashboard.payload.data.summary.total_plays, 1200);
+  assert.equal(replacedDashboard.payload.data.summary.total_deals, 1);
+  assert.equal(replacedDashboard.payload.data.summary.total_amount, 10.01);
+  assert.equal(replacedDashboard.payload.data.summary.total_videos, 1);
+
+  const overlap = await requestJson(base, '/data-tracks/range-report', token, {
+    method: 'POST',
+    body: JSON.stringify({ ...rangePayload, period_start: '2026-06-24', period_end: '2026-06-26' })
+  });
+  assert.equal(overlap.res.status, 409);
+  assert.equal(overlap.payload.data.overlaps.length, 1);
 });

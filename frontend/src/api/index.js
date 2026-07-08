@@ -62,10 +62,12 @@ export const updateAccount = (id, data) => request.put(`/accounts/${id}`, data)
 export const deleteAccount = (id) => request.delete(`/accounts/${id}`)
 export const updateAccountPublishStatus = (id, data) => request.put(`/accounts/${id}/publish-status`, data)
 export const uploadAvatar = (data) => request.post('/uploads/avatar', data)
+export const uploadQrcode = (data) => request.post('/uploads/qrcode', data)
 
 // 城市
 export const getCities = () => request.get('/cities')
 export const getCityBoard = (params) => request.get('/cities/board', { params })
+export const getCityTaskDetail = (id, params) => request.get(`/cities/${id}/task-detail`, { params })
 export const getCityById = (id) => request.get(`/cities/${id}`)
 export const createCity = (data) => request.post('/cities', data)
 export const updateCity = (id, data) => request.put(`/cities/${id}`, data)
@@ -76,10 +78,17 @@ export const getCityDistributions = (params, config = {}) => request.get('/city-
 export const createCityDistribution = (data) => request.post('/city-distributions', data)
 export const updateCityDistribution = (id, data) => request.put(`/city-distributions/${id}`, data)
 export const deleteCityDistribution = (id) => request.delete(`/city-distributions/${id}`)
+export const recordCityDistributionDownload = (id) => request.post(`/city-distributions/${id}/download`)
 
 // 数据追踪
 export const getDataTracks = (params) => request.get('/data-tracks', { params: normalizePageParams(params) })
+export const getDataReportDetails = (params) => request.get('/data-report-details', { params: normalizePageParams(params) })
+export const getDataReportAudits = (params) => request.get('/data-report-audits', { params: normalizePageParams(params) })
 export const createDataTrack = (data) => request.post('/data-tracks', data)
+export const saveRangeDataReport = (data) => request.post('/data-tracks/range-report', data, { silentError: true })
+export const deleteDataReportBatch = (batchId) => request.delete(`/data-tracks/batch/${batchId}`)
+export const updateDataTrack = (id, data) => request.put(`/data-tracks/${id}`, data)
+export const deleteDataTrack = (id) => request.delete(`/data-tracks/${id}`)
 export const getDataStats = (params) => request.get('/data-dashboard', { params })
 
 // AI报告
@@ -106,6 +115,9 @@ export const updateSystemUser = (id, data) => request.put(`/system-users/${id}`,
 export const resetSystemUserPassword = (id, data) => request.put(`/system-users/${id}/password`, data)
 export const deleteSystemUser = (id) => request.delete(`/system-users/${id}`)
 
+// 操作日志
+export const getOperationLogs = (params) => request.get('/operation-logs', { params })
+
 // 搜索与通知
 export const globalSearch = (params) => request.get('/search', { params })
 export const getNotifications = (params) => request.get('/notifications', { params })
@@ -128,3 +140,13 @@ export const updateMonthlyGoal = (month, data) => request.put(`/monthly-goals/${
 export const createStaff = (data) => request.post('/staffs', data)
 export const updateStaff = (id, data) => request.put(`/staffs/${id}`, data)
 export const deleteStaff = (id) => request.delete(`/staffs/${id}`)
+
+// 城市蓝V账号
+export const getBluevFields = () => request.get('/bluev-fields')
+export const createBluevField = (data) => request.post('/bluev-fields', data)
+export const updateBluevField = (id, data) => request.put(`/bluev-fields/${id}`, data)
+export const deleteBluevField = (id) => request.delete(`/bluev-fields/${id}`)
+export const getBluevAccounts = (params) => request.get('/bluev-accounts', { params })
+export const createBluevAccount = (data) => request.post('/bluev-accounts', data)
+export const updateBluevAccount = (id, data) => request.put(`/bluev-accounts/${id}`, data)
+export const deleteBluevAccount = (id) => request.delete(`/bluev-accounts/${id}`)

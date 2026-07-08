@@ -3,7 +3,7 @@
     <header class="hero">
       <div>
         <div class="eyebrow"><IconFont name="dashboard" :fallback="HomeFilled" /> 城市工作台</div>
-        <h1>{{ userName }}，今天要处理 {{ stats.pending }} 个任务</h1>
+        <h1>{{ userName }}，当前有 {{ stats.pending }} 个待处理任务</h1>
         <p>查看总部下发任务、发布进度和待读通知</p>
       </div>
       <el-button @click="loadData"><IconFont name="reset" :fallback="Refresh" />刷新</el-button>
@@ -61,7 +61,7 @@
           <div class="notice-list">
             <div class="notice-row">
               <strong>待发布任务</strong>
-              <span>当前还有 {{ stats.pending }} 条任务未发布，请优先处理今日任务。</span>
+              <span>当前还有 {{ stats.pending }} 条任务未发布；其中今日任务 {{ stats.today }} 条。</span>
             </div>
             <div class="notice-row">
               <strong>待补数据</strong>

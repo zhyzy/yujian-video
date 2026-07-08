@@ -1,6 +1,7 @@
 const Database = require('better-sqlite3');
 const path = require('path');
 const bcrypt = require('bcryptjs');
+const crypto = require('crypto');
 require('./env');
 
 const configuredDbPath = process.env.DB_PATH;
@@ -54,6 +55,7 @@ const initTables = () => {
   alterAccounts('remark', "DEFAULT ''");
   alterAccounts('avatar', "DEFAULT ''");
   alterAccounts('owner_avatar', "DEFAULT ''");
+  alterAccounts('qrcode_url', "DEFAULT ''");
 
   // 城市表
   db.exec(`
@@ -206,6 +208,40 @@ const initTables = () => {
     )
   `);
 
+  // 城市蓝V账号字段配置表
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS bluev_fields (
+      id TEXT PRIMARY KEY,
+      field_key TEXT NOT NULL UNIQUE,
+      field_label TEXT NOT NULL,
+      field_type TEXT DEFAULT 'text',
+      field_options TEXT,
+      sort_order INTEGER DEFAULT 0,
+      is_required INTEGER DEFAULT 0,
+      is_active INTEGER DEFAULT 1,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
+  // 城市蓝V账号注册表
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS bluev_accounts (
+      id TEXT PRIMARY KEY,
+      city_id TEXT NOT NULL,
+      city_name TEXT NOT NULL,
+      data TEXT NOT NULL,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
+  // 城市蓝V账号索引
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_bluev_accounts_city_id ON bluev_accounts(city_id);
+    CREATE INDEX IF NOT EXISTS idx_bluev_fields_sort ON bluev_fields(sort_order);
+  `);
+
   // AI报告表
   db.exec(`
     CREATE TABLE IF NOT EXISTS ai_reports (
@@ -263,12 +299,25 @@ const ensureCurrentSchema = () => {
     'city_remark TEXT',
     'submitted_by TEXT',
     'submitted_at TEXT',
-    'review_status TEXT DEFAULT "pending"'
+    'review_status TEXT DEFAULT "pending"',
+    'downloaded_at TEXT',
+    'last_downloaded_at TEXT',
+    'download_count INTEGER DEFAULT 0',
+    'downloaded_by TEXT'
   ].forEach(definition => addColumnIfMissing('city_distributions', definition));
 
   [
     'deal_count INTEGER DEFAULT 0',
-    'deal_amount REAL DEFAULT 0'
+    'deal_amount REAL DEFAULT 0',
+    'favorite_count INTEGER DEFAULT 0',
+    'share_count INTEGER DEFAULT 0',
+    'video_title TEXT',
+    'period_start TEXT',
+    'period_end TEXT',
+    'report_batch_id TEXT',
+    "report_source TEXT DEFAULT 'manual'",
+    'updated_by TEXT',
+    'updated_at TEXT'
   ].forEach(definition => addColumnIfMissing('data_tracks', definition));
 };
 
@@ -465,6 +514,134 @@ const runMigrations = () => {
       CREATE INDEX IF NOT EXISTS idx_city_distributions_account_status ON city_distributions(account_id, status);
     `);
   });
+
+  applyMigration('20260629_city_distribution_download_tracking', '城市素材下载状态追踪', () => {
+    [
+      'downloaded_at TEXT',
+      'last_downloaded_at TEXT',
+      'download_count INTEGER DEFAULT 0',
+      'downloaded_by TEXT'
+    ].forEach(definition => addColumnIfMissing('city_distributions', definition));
+    db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_city_distributions_downloaded_at
+      ON city_distributions(downloaded_at)
+    `);
+  });
+
+  applyMigration('20260630_data_report_upsert_v1', '周期数据覆盖录入', () => {
+    [
+      'favorite_count INTEGER DEFAULT 0',
+      'share_count INTEGER DEFAULT 0',
+      'video_title TEXT',
+      'period_start TEXT',
+      'period_end TEXT',
+      'report_batch_id TEXT',
+      "report_source TEXT DEFAULT 'manual'",
+      'updated_by TEXT',
+      'updated_at TEXT'
+    ].forEach(definition => addColumnIfMissing('data_tracks', definition));
+    db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_data_tracks_report_period
+      ON data_tracks(account_id, report_source, period_start, period_end);
+      CREATE INDEX IF NOT EXISTS idx_data_tracks_report_batch
+      ON data_tracks(report_batch_id);
+    `);
+  });
+
+  applyMigration('20260630_legacy_city_reports_v2', '合并旧版城市区间数据', () => {
+    const legacyRows = db.prepare(`
+      SELECT * FROM city_distributions
+      WHERE city_remark LIKE '区间汇总 %至%'
+      ORDER BY COALESCE(updated_at, created_at) DESC
+    `).all();
+    const groups = new Map();
+    for (const row of legacyRows) {
+      const matched = String(row.city_remark || '').match(/(\d{4}-\d{2}-\d{2})\s*至\s*(\d{4}-\d{2}-\d{2})/);
+      if (!matched || !row.account_id) continue;
+      const key = `${row.account_id}:${matched[1]}:${matched[2]}`;
+      if (!groups.has(key)) groups.set(key, { start: matched[1], end: matched[2], rows: [] });
+      groups.get(key).rows.push(row);
+    }
+
+    const insert = db.prepare(`
+      INSERT INTO data_tracks (
+        id, date, account_id, play_count, like_count, comment_count, favorite_count,
+        share_count, deal_count, deal_amount, video_title, captured_at,
+        period_start, period_end, report_batch_id, report_source, updated_by, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    const distribute = (value, days, scale = 1) => {
+      const total = Math.max(0, Math.round(Number(value || 0) * scale));
+      const base = Math.floor(total / days);
+      const remainder = total - base * days;
+      return Array.from({ length: days }, (_, index) => (base + (index < remainder ? 1 : 0)) / scale);
+    };
+    const addDays = (date, amount) => {
+      const value = new Date(`${date}T00:00:00Z`);
+      value.setUTCDate(value.getUTCDate() + amount);
+      return value.toISOString().slice(0, 10);
+    };
+    const dayCount = (start, end) => Math.round((new Date(`${end}T00:00:00Z`) - new Date(`${start}T00:00:00Z`)) / 86400000) + 1;
+
+    for (const { start, end, rows } of groups.values()) {
+      const latest = rows[0];
+      const existing = db.prepare(`
+        SELECT report_batch_id FROM data_tracks
+        WHERE account_id = ? AND period_start = ? AND period_end = ? AND report_batch_id IS NOT NULL
+        ORDER BY COALESCE(updated_at, created_at) DESC LIMIT 1
+      `).get(latest.account_id, start, end);
+      if (!existing) {
+        const days = dayCount(start, end);
+        if (days > 0 && days <= 366) {
+          const batchId = crypto.randomUUID();
+          const values = {
+            plays: distribute(latest.play_count, days),
+            likes: distribute(latest.like_count, days),
+            comments: distribute(latest.comment_count, days),
+            favorites: distribute(latest.favorite_count, days),
+            shares: distribute(latest.share_count, days),
+            deals: distribute(latest.deal_count, days),
+            amounts: distribute(latest.deal_amount, days, 100)
+          };
+          for (let index = 0; index < days; index++) {
+            insert.run(
+              crypto.randomUUID(), addDays(start, index), latest.account_id,
+              values.plays[index], values.likes[index], values.comments[index], values.favorites[index],
+              values.shares[index], values.deals[index], values.amounts[index], latest.video_title || `区间汇总 - ${start} 至 ${end}`,
+              latest.submitted_at || latest.created_at, start, end, batchId, 'city_manual', latest.submitted_by,
+              latest.updated_at || latest.created_at
+            );
+          }
+        }
+      }
+      const deleteLegacy = db.prepare('DELETE FROM city_distributions WHERE id = ?');
+      rows.forEach(row => deleteLegacy.run(row.id));
+    }
+  });
+
+  applyMigration('20260704_data_report_audit_v1', '数据上报审计日志', () => {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS data_report_audit_logs (
+        id TEXT PRIMARY KEY,
+        action TEXT NOT NULL,
+        target_type TEXT NOT NULL,
+        target_id TEXT,
+        account_id TEXT,
+        city_id TEXT,
+        period_start TEXT,
+        period_end TEXT,
+        before_data TEXT,
+        after_data TEXT,
+        operator_id TEXT,
+        operator_name TEXT,
+        operator_role TEXT,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE INDEX IF NOT EXISTS idx_data_report_audit_target ON data_report_audit_logs(target_type, target_id);
+      CREATE INDEX IF NOT EXISTS idx_data_report_audit_account ON data_report_audit_logs(account_id, created_at);
+      CREATE INDEX IF NOT EXISTS idx_data_report_audit_city ON data_report_audit_logs(city_id, created_at);
+    `);
+  });
 };
 
 // 插入初始数据
@@ -566,6 +743,19 @@ const initSeedData = () => {
     db.prepare('INSERT INTO users (id, username, password_hash, name, role) VALUES (?, ?, ?, ?, ?)')
       .run('user_admin', username, passwordHash, '系统管理员', 'admin');
     console.log(`初始管理员已创建：${username}`);
+  }
+
+  const bluevFieldCount = db.prepare('SELECT COUNT(*) as count FROM bluev_fields').get();
+  if (bluevFieldCount.count === 0) {
+    const insertField = db.prepare(`
+      INSERT INTO bluev_fields (id, field_key, field_label, field_type, field_options, sort_order, is_required, is_active)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    insertField.run('bf_1', 'account_type', '账号类型', 'select', '抖音,快手,视频号,小红书,微博,B站', 1, 1, 1);
+    insertField.run('bf_2', 'is_certified', '是否已认证', 'select', '是,否', 2, 1, 1);
+    insertField.run('bf_3', 'cert_company', '认证营业执照名', 'text', '', 3, 1, 1);
+    insertField.run('bf_4', 'account_name', '账号名称', 'text', '', 4, 1, 1);
+    console.log('城市蓝V账号初始字段插入完成');
   }
 };
 

@@ -29,7 +29,7 @@
     <template #summary-row>
     <div class="stat-row">
       <div class="stat-card">
-        <span>今日记录</span>
+        <span>当日记录</span>
         <strong>{{ list.length }}</strong>
       </div>
       <div class="stat-card good">
@@ -38,7 +38,11 @@
       </div>
       <div class="stat-card warn">
         <span>待发布</span>
-        <strong>{{ ledgerPendingCount }}</strong>
+        <strong>{{ countByStatus('pending') }}</strong>
+      </div>
+      <div class="stat-card missing">
+        <span>未登记账号</span>
+        <strong>{{ unregisteredAccountCount }}</strong>
       </div>
       <div class="stat-card danger">
         <span>失败/阻塞</span>
@@ -287,12 +291,15 @@ import ConfigurablePageRenderer from '@/layout-builder/ConfigurablePageRenderer.
 import { useLayoutBindings } from '@/layout-builder/layoutBindings'
 import { layoutModuleCatalog } from '@/layout-builder/moduleCatalog'
 import { isCityUser as isCityUserFn } from '@/utils/authRole'
+import { usePageSearch } from '@/composables/usePageSearch'
 
 const readCurrentUser = () => {
   try { return JSON.parse(localStorage.getItem('auth_user') || '{}') }
   catch { return {} }
 }
-const isCityUser = isCityUserFn(readCurrentUser())
+const currentUser = readCurrentUser()
+const isCityUser = isCityUserFn(currentUser)
+const { matchesPageSearch } = usePageSearch()
 
 const route = useRoute()
 const publishLedgerLayoutModules = layoutModuleCatalog.publishLedger
@@ -359,7 +366,10 @@ const filteredList = computed(() => {
       if (sourceFilter.value && item.source !== sourceFilter.value) return false
       if (sourceFilter.value === 'city' && cityFilter.value && item.city_id !== cityFilter.value) return false
     }
-    return true
+    return matchesPageSearch(
+      item.account_name, item.city_name, item.video_title, item.material_file_name,
+      item.platform, item.published_url, item.fail_reason, item.date, statusLabel(item.status)
+    )
   })
 })
 
@@ -371,8 +381,19 @@ const accountMap = computed(() => {
 })
 
 const visibleAccounts = computed(() => {
-  if (isCityUser) return accounts.value.filter(a => a.type === 'city')
+  if (isCityUser) {
+    return accounts.value.filter(a => a.type === 'city' && String(a.city_id) === String(currentUser.city_id))
+  }
   return accounts.value
+})
+
+const summaryAccounts = computed(() => {
+  if (isCityUser) return visibleAccounts.value
+  return accounts.value.filter(account => {
+    if (sourceFilter.value && account.type !== sourceFilter.value) return false
+    if (sourceFilter.value === 'city' && cityFilter.value && String(account.city_id) !== String(cityFilter.value)) return false
+    return true
+  })
 })
 
 const scheduleMap = computed(() => {
@@ -419,26 +440,10 @@ const formatStatsTime = (item = {}) => {
 const mediaUrl = (url) => resolveMediaUrl(url)
 const countByStatus = (status) => list.value.filter(item => item.status === status).length
 
-const pickScheduleStatus = (items) => {
-  if (!items.length) return ''
-  if (items.some(item => item.status === 'published')) return 'published'
-  if (items.some(item => item.status === 'failed')) return 'failed'
-  if (items.some(item => item.status === 'publishing')) return 'publishing'
-  return 'pending'
-}
-
-const planStatusForAccount = (account) => {
+const unregisteredAccountCount = computed(() => summaryAccounts.value.filter(account => {
   const items = scheduleMap.value.get(`${account.id}_${selectedDate.value}`) || []
-  const status = pickScheduleStatus(items)
-  if (status) return status
-  if (dayjs(selectedDate.value).isBefore(dayjs().format('YYYY-MM-DD'), 'day')) return 'missing'
-  if ((account.remark || '').includes('策划')) return 'planning'
-  return 'pending'
-}
-
-const ledgerPendingCount = computed(() => {
-  return accounts.value.filter(account => planStatusForAccount(account) === 'pending').length
-})
+  return items.length === 0
+}).length)
 
 const accountTypeLabel = (row) => {
   const account = accountMap.value[String(row.account_id || row.id)] || {}
@@ -464,6 +469,7 @@ const loadPublishAccounts = async () => {
     return (city.accounts || []).map(account => ({
       ...account,
       type: 'city',
+      city_id: account.city_id || city.id,
       city_name: city.name,
       account_type: account.account_type || account.type_note || '',
       platform_account: account.platform_account || account.url || ''
@@ -676,12 +682,13 @@ h1 { margin-top: 8px; font-size: 28px; color: #0f172a; }
 .ghost-btn { border: 1px solid #e5e7eb; background: #fff; color: #475569; }
 .primary-btn { border: 0; background: linear-gradient(135deg,#6366f1,#8b5cf6); color: #fff; box-shadow: 0 8px 18px rgba(99,102,241,.25); }
 .primary-btn:disabled { opacity: .7; cursor: not-allowed; }
-.stat-row { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.stat-row { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; }
 .stat-card { background: #fff; border: 1px solid #e5e7eb; border-radius: 12px; padding: 18px; display: flex; flex-direction: column; gap: 8px; }
 .stat-card span { color: #64748b; font-size: 13px; }
 .stat-card strong { color: #0f172a; font-size: 28px; line-height: 1; }
 .stat-card.good strong { color: #059669; }
 .stat-card.warn strong { color: #d97706; }
+.stat-card.missing strong { color: #7c3aed; }
 .stat-card.danger strong { color: #dc2626; }
 .panel { background: #fff; border: 1px solid #e5e7eb; border-radius: 14px; padding: 22px; }
 .panel-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 18px; }

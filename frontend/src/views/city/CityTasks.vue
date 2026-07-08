@@ -24,7 +24,29 @@
           </div>
         </div>
         <div class="filter-right">
+          <div class="time-shortcuts">
+            <button
+              v-for="item in timeShortcuts"
+              :key="item.value"
+              class="time-chip"
+              :class="{ active: isTimeShortcutActive(item.value) }"
+              @click="applyTimeShortcut(item)"
+            >
+              {{ item.label }}
+            </button>
+          </div>
           <div class="date-filter">
+            <el-time-picker
+              v-model="timeRange"
+              is-range
+              range-separator="至"
+              start-placeholder="开始"
+              end-placeholder="结束"
+              value-format="HH:mm"
+              format="HH:mm"
+              style="width: 220px"
+              @change="onTimeRangeChange"
+            />
             <el-date-picker
               v-model="dateRange"
               type="daterange"
@@ -146,20 +168,23 @@ import dayjs from 'dayjs'
 import { Download, Link, Monitor, Promotion, Refresh, VideoPlay } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import IconFont from '@/components/IconFont.vue'
-import { getCityDistributions, getCityById } from '@/api'
+import { getCityDistributions, getCityById, recordCityDistributionDownload } from '@/api'
 import { getPlatformName, platformBgColors } from '@/utils/iconMapping'
 import ConfigurablePageRenderer from '@/layout-builder/ConfigurablePageRenderer.vue'
 import { useLayoutBindings } from '@/layout-builder/layoutBindings'
 import { layoutModuleCatalog } from '@/layout-builder/moduleCatalog'
+import { usePageSearch } from '@/composables/usePageSearch'
 
 const router = useRouter()
 const cityTasksLayoutModules = layoutModuleCatalog.cityTasks
 const { bindings: layoutBindings } = useLayoutBindings('cityTasks')
 const loading = ref(false)
 const dateRange = ref(null)
+const timeRange = ref(null)
 const tasks = ref([])
 const activeFilter = ref('distributed')
 const currentCityNetdisk = ref('')
+const { matchesPageSearch } = usePageSearch()
 
 const platformLabel = (p) => getPlatformName(p)
 const platformBg = (p) => ({
@@ -182,6 +207,27 @@ const platformShortcuts = [
   { name: '小红书创作者中心', platform: 'xiaohongshu', url: 'https://creator.xiaohongshu.com/' },
   { name: '抖音创作者中心', platform: 'douyin', url: 'https://creator.douyin.com/' }
 ]
+
+const timeShortcuts = [
+  { label: '全部', value: 'all', range: null },
+  { label: '上午', value: 'morning', range: ['06:00', '12:00'] },
+  { label: '下午', value: 'afternoon', range: ['12:00', '18:00'] },
+  { label: '晚上', value: 'evening', range: ['18:00', '24:00'] },
+  { label: '凌晨', value: 'night', range: ['00:00', '06:00'] }
+]
+
+const activeTimeShortcut = ref('all')
+
+const isTimeShortcutActive = (value) => activeTimeShortcut.value === value
+
+const applyTimeShortcut = (item) => {
+  activeTimeShortcut.value = item.value
+  timeRange.value = item.range
+}
+
+const onTimeRangeChange = () => {
+  activeTimeShortcut.value = 'custom'
+}
 
 const normalizeDate = (value) => {
   if (!value) return ''
@@ -215,6 +261,26 @@ const filteredTasks = computed(() => {
   if (dateRange.value && dateRange.value.length === 2) {
     list = list.filter(item => item.date >= dateRange.value[0] && item.date <= dateRange.value[1])
   }
+  if (timeRange.value && timeRange.value.length === 2) {
+    const [start, end] = timeRange.value
+    list = list.filter(item => {
+      const t = item.publish_time || item.time || '00:00'
+      if (start <= end) return t >= start && t <= end
+      return t >= start || t <= end
+    })
+  }
+  list = list.filter(task => matchesPageSearch(
+    task.video_title, task.account_name, task.city_name, task.publish_platform,
+    task.platform, task.publish_requirement, task.video_url, task.material_url, task.date
+  ))
+  list = [...list].sort((a, b) => {
+    const dateA = a.date || ''
+    const dateB = b.date || ''
+    if (dateA !== dateB) return dateA.localeCompare(dateB)
+    const timeA = a.publish_time || a.time || '00:00'
+    const timeB = b.publish_time || b.time || '00:00'
+    return timeA.localeCompare(timeB)
+  })
   return list
 })
 
@@ -254,12 +320,19 @@ const loadData = async () => {
 }
 
 const goPublish = (task) => {
-  router.push({ path: '/city/publish-submit', query: { taskId: task.id } })
+  router.push({ path: '/city/publish-submit', query: { taskId: task.id, date: task.date } })
 }
 
-const openMaterial = (task) => {
+const openMaterial = async (task) => {
   const url = task.video_url || task.material_url
-  if (url) window.open(url, '_blank', 'noopener,noreferrer')
+  if (!url) return
+  try {
+    const download = await recordCityDistributionDownload(task.id)
+    Object.assign(task, download || {})
+    window.open(url, '_blank', 'noopener,noreferrer')
+  } catch (error) {
+    ElMessage.error(error?.message || '下载记录失败，请稍后重试')
+  }
 }
 const openNetdisk = () => {
   if (currentCityNetdisk.value) {
@@ -326,6 +399,31 @@ onMounted(loadData)
 .platform-shortcuts button:hover { border-color: #c7d2fe; color: #4f46e5; background: #f8fafc; transform: translateY(-1px); }
 
 .date-filter { display: flex; align-items: center; gap: 8px; }
+
+.time-shortcuts { display: flex; align-items: center; gap: 4px; margin-right: 4px; }
+.time-chip {
+  height: 32px;
+  padding: 0 12px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #fff;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+  font-family: inherit;
+}
+.time-chip:hover {
+  border-color: #a5b4fc;
+  color: #4f46e5;
+  background: #f5f3ff;
+}
+.time-chip.active {
+  background: linear-gradient(135deg, #4f46e5, #6366f1);
+  border-color: transparent;
+  color: #fff;
+}
 
 /* 筛选Tab按钮 */
 .filter-tabs {

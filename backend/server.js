@@ -23,6 +23,10 @@ const avatarUploadsDir = path.join(uploadsDir, 'avatars');
 if (!fs.existsSync(avatarUploadsDir)) {
   fs.mkdirSync(avatarUploadsDir, { recursive: true });
 }
+const qrcodeUploadsDir = path.join(uploadsDir, 'qrcodes');
+if (!fs.existsSync(qrcodeUploadsDir)) {
+  fs.mkdirSync(qrcodeUploadsDir, { recursive: true });
+}
 
 // Winston logger setup
 const logger = winston.createLogger({
@@ -97,6 +101,14 @@ app.use('/api/uploads', express.static(uploadsDir, {
   maxAge: '30d',
   immutable: true
 }));
+
+const distPath = path.join(__dirname, '../frontend/dist');
+if (fs.existsSync(distPath)) {
+  app.use(express.static(distPath));
+  app.get(/^\/(?!api\/|uploads\/).*/, (req, res) => {
+    res.sendFile(path.join(distPath, 'index.html'));
+  });
+}
 
 const generateId = () => crypto.randomUUID();
 const JWT_SECRET = process.env.JWT_SECRET;
@@ -209,6 +221,7 @@ const buildTaskProgress = ({ user = {}, month, cityId } = {}) => {
     WITH all_tracks AS (
       SELECT
         dt.date,
+        COALESCE(dt.report_batch_id, dt.id) as record_key,
         dt.account_id,
         NULL as city_id,
         COALESCE(dt.play_count, 0) as play_count,
@@ -218,6 +231,7 @@ const buildTaskProgress = ({ user = {}, month, cityId } = {}) => {
       UNION ALL
       SELECT
         COALESCE(NULLIF(substr(cd.actual_publish_time, 1, 10), ''), cd.date) as date,
+        cd.id as record_key,
         cd.account_id,
         cd.city_id,
         COALESCE(cd.play_count, 0) as play_count,
@@ -409,6 +423,20 @@ const operationLogger = (req, res, next) => {
   next();
 };
 
+const writeDataAudit = ({ action, targetType, targetId, accountId, cityId, periodStart, periodEnd, before, after, user }) => {
+  const serialize = (value) => value == null ? null : JSON.stringify(value).slice(0, 50000);
+  db.prepare(`
+    INSERT INTO data_report_audit_logs (
+      id, action, target_type, target_id, account_id, city_id, period_start, period_end,
+      before_data, after_data, operator_id, operator_name, operator_role
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    generateId(), action, targetType, targetId || null, accountId || null, cityId || null,
+    periodStart || null, periodEnd || null, serialize(before), serialize(after),
+    user?.id || null, user?.name || user?.username || null, user?.role || null
+  );
+};
+
 const parseRangeToDates = (query = {}) => {
   if (query.dateFrom || query.dateTo) {
     return {
@@ -429,22 +457,33 @@ const parseRangeToDates = (query = {}) => {
   };
 };
 
+const platformLabelMap = {
+  douyin: '抖音',
+  kuaishou: '快手',
+  weixin: '视频号',
+  xiaohongshu: '小红书',
+  weibo: '微博',
+  bilibili: 'B站'
+};
+
 const normalizeAccountPayload = (body = {}) => {
   const knownScopes = new Set(['self', 'hq', 'city', 'other']);
   const requestedType = body.type || '';
   const scope = knownScopes.has(requestedType)
     ? requestedType
     : (body.city_id ? 'city' : (body.platform === 'other' ? 'other' : 'self'));
+  const platform = body.platform || 'other';
+  const platformLabel = body.platform_label || platformLabelMap[platform] || '';
   return {
     name: body.name,
-    platform: body.platform || 'other',
+    platform,
     platform_account: body.platform_account || body.url || '',
     type: scope,
     city_id: body.city_id || null,
     status: body.status || 'active',
     browser_profile: body.browser_profile || '',
     account_type: body.account_type || body.type_note || (knownScopes.has(requestedType) ? '' : requestedType),
-    platform_label: body.platform_label || '',
+    platform_label: platformLabel,
     cert: body.cert || '',
     frequency: body.frequency || '',
     priority: body.priority || 'medium',
@@ -453,7 +492,8 @@ const normalizeAccountPayload = (body = {}) => {
     purpose: body.purpose || '',
     remark: body.remark || '',
     avatar: body.avatar || '',
-    owner_avatar: body.owner_avatar || ''
+    owner_avatar: body.owner_avatar || '',
+    qrcode_url: body.qrcode_url || ''
   };
 };
 
@@ -1084,13 +1124,27 @@ app.put('/api/notifications/read-all', authRequired, (req, res) => {
 
 app.get('/api/operation-logs', authRequired, (req, res) => {
   if (req.user.role !== 'admin') return res.status(403).json(error('仅管理员可查看操作日志', 403));
-  const { page = 1, pageSize = 50 } = req.query;
+  const { page = 1, pageSize = 50, user_id, username, dateFrom, dateTo, action, method, path } = req.query;
+  let where = [];
+  let params = [];
+  
+  if (user_id) { where.push('user_id = ?'); params.push(user_id); }
+  if (username) { where.push('username LIKE ?'); params.push(`%${username}%`); }
+  if (dateFrom) { where.push('created_at >= ?'); params.push(dateFrom); }
+  if (dateTo) { where.push('created_at <= ?'); params.push(dateTo); }
+  if (action) { where.push('action LIKE ?'); params.push(`%${action}%`); }
+  if (method) { where.push('method LIKE ?'); params.push(`%${method}%`); }
+  if (path) { where.push('path LIKE ?'); params.push(`%${path}%`); }
+  
+  const whereStr = where.length ? `WHERE ${where.join(' AND ')}` : '';
+  
   const logs = db.prepare(`
     SELECT * FROM operation_logs
+    ${whereStr}
     ORDER BY created_at DESC
     LIMIT ? OFFSET ?
-  `).all(parseInt(pageSize), (parseInt(page) - 1) * parseInt(pageSize));
-  const { total } = db.prepare('SELECT COUNT(*) as total FROM operation_logs').get();
+  `).all(...params, parseInt(pageSize), (parseInt(page) - 1) * parseInt(pageSize));
+  const { total } = db.prepare(`SELECT COUNT(*) as total FROM operation_logs ${whereStr}`).get(...params);
   res.json(success({ list: logs, total, page: parseInt(page), pageSize: parseInt(pageSize) }));
 });
 
@@ -1177,6 +1231,44 @@ app.post('/api/uploads/avatar', (req, res) => {
     size: buffer.length,
     mime: contentType
   }, '头像上传成功'));
+});
+
+app.post('/api/uploads/qrcode', authRequired, (req, res) => {
+  const { filename = 'qrcode.png', mime = '', data = '' } = req.body || {};
+  const match = String(data).match(/^data:(image\/(?:png|jpe?g|webp|gif));base64,(.+)$/i);
+  const contentType = match?.[1] || mime;
+  const base64 = match?.[2] || data;
+
+  if (!/^image\/(png|jpe?g|webp|gif)$/i.test(contentType)) {
+    return res.status(400).json(error('只支持 png、jpg、webp、gif 图片', 400));
+  }
+  if (!base64) {
+    return res.status(400).json(error('缺少图片内容', 400));
+  }
+
+  const buffer = Buffer.from(base64, 'base64');
+  if (!buffer.length || buffer.length > 5 * 1024 * 1024) {
+    return res.status(400).json(error('二维码图片不能超过 5MB', 400));
+  }
+
+  const extByMime = {
+    'image/png': 'png',
+    'image/jpeg': 'jpg',
+    'image/jpg': 'jpg',
+    'image/webp': 'webp',
+    'image/gif': 'gif'
+  };
+  const ext = extByMime[contentType.toLowerCase()] || path.extname(filename).slice(1).toLowerCase() || 'png';
+  const safeName = `${dayjs().format('YYYYMMDD')}_${crypto.randomBytes(10).toString('hex')}.${ext}`;
+  const filePath = path.join(qrcodeUploadsDir, safeName);
+  fs.writeFileSync(filePath, buffer);
+
+  res.json(success({
+    url: `/api/uploads/qrcodes/${safeName}`,
+    filename: safeName,
+    size: buffer.length,
+    mime: contentType
+  }, '二维码上传成功'));
 });
 
 app.post('/api/media/preview-token', async (req, res, next) => {
@@ -1854,8 +1946,8 @@ app.post('/api/accounts', authRequired, (req, res) => {
     INSERT INTO accounts (
       id, name, platform, platform_account, type, city_id, status, browser_profile,
       account_type, platform_label, cert, frequency, priority, owner, editor, purpose, remark,
-      avatar, owner_avatar
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      avatar, owner_avatar, qrcode_url
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     id,
     account.name,
@@ -1875,35 +1967,39 @@ app.post('/api/accounts', authRequired, (req, res) => {
     account.purpose,
     account.remark,
     account.avatar || '',
-    account.owner_avatar || ''
+    account.owner_avatar || '',
+    account.qrcode_url || ''
   );
   savePublishStatus(id, req.body.publish_status);
   res.json(success({ id }, '创建成功'));
 });
 
 app.put('/api/accounts/:id', authRequired, (req, res) => {
+  const existing = db.prepare('SELECT * FROM accounts WHERE id = ? AND status != ?').get(req.params.id, 'archived');
+  if (!existing) return res.status(404).json(error('账号不存在', 404));
   // 城市用户只能修改自己城市的账号
   if (isCityRole(req.user.role)) {
-    const existing = db.prepare('SELECT * FROM accounts WHERE id = ?').get(req.params.id);
-    if (!existing) return res.status(404).json(error('账号不存在', 404));
     if (existing.city_id !== req.user.city_id) return res.status(403).json(error('没有权限修改该账号', 403));
     // 城市用户只能修改部分字段，强制 type 和 city_id 不可改
-    const { name, platform_account, status, remark, platform_label } = req.body;
-    db.prepare(`
+    const { name, platform_account, status, remark, platform_label, qrcode_url } = req.body;
+    const result = db.prepare(`
       UPDATE accounts SET
         name = ?,
         platform_account = ?,
         status = ?,
         platform_label = ?,
         remark = ?,
+        qrcode_url = ?,
         updated_at = CURRENT_TIMESTAMP
       WHERE id = ?
-    `).run(name, platform_account, status, platform_label || '', remark || '', req.params.id);
-    return res.json(success(null, '更新成功'));
+    `).run(name, platform_account, status, platform_label || '', remark || '', qrcode_url || '', req.params.id);
+    if (!result.changes) return res.status(409).json(error('账号未更新，请刷新后重试', 409));
+    const updated = db.prepare('SELECT * FROM accounts WHERE id = ?').get(req.params.id);
+    return res.json(success(updated, '更新成功'));
   }
   const account = normalizeAccountPayload(req.body);
   validateHqAccountType(account);
-  db.prepare(`
+  const result = db.prepare(`
     UPDATE accounts SET
       name = ?,
       platform = ?,
@@ -1923,6 +2019,7 @@ app.put('/api/accounts/:id', authRequired, (req, res) => {
       remark = ?,
       avatar = ?,
       owner_avatar = ?,
+      qrcode_url = ?,
       updated_at = CURRENT_TIMESTAMP
     WHERE id = ?
   `).run(
@@ -1944,10 +2041,13 @@ app.put('/api/accounts/:id', authRequired, (req, res) => {
     account.remark,
     account.avatar || '',
     account.owner_avatar || '',
+    account.qrcode_url || '',
     req.params.id
   );
+  if (!result.changes) return res.status(409).json(error('账号未更新，请刷新后重试', 409));
   savePublishStatus(req.params.id, req.body.publish_status);
-  res.json(success(null, '更新成功'));
+  const updated = db.prepare('SELECT * FROM accounts WHERE id = ?').get(req.params.id);
+  res.json(success(updated, '更新成功'));
 });
 
 app.delete('/api/accounts/:id', authRequired, (req, res) => {
@@ -2005,7 +2105,8 @@ app.get('/api/cities', (req, res) => {
       ...account,
       url: account.platform_account,
       type_note: account.account_type,
-      platform_label: account.platform_label || account.platform
+      platform_label: account.platform_label || platformLabelMap[account.platform] || account.platform,
+      qrcode_url: account.qrcode_url
     });
     return map;
   }, {});
@@ -2100,14 +2201,51 @@ app.delete('/api/cities/:id', (req, res) => {
 
 // ========== 城市分发 API ==========
 app.get('/api/city-distributions', authRequired, (req, res) => {
-  const { page = 1, pageSize = 20, dateFrom, dateTo, cityId, status } = req.query;
+  const {
+    page = 1, pageSize = 20, dateFrom, dateTo, actualDateFrom, actualDateTo,
+    downloadDateFrom, downloadDateTo, submittedDateFrom, submittedDateTo, cityId, status, downloadStatus,
+    account_id, timeFrom, timeTo, keyword
+  } = req.query;
   let where = [];
   let params = [];
   
   if (dateFrom) { where.push('cd.date >= ?'); params.push(dateFrom); }
   if (dateTo) { where.push('cd.date <= ?'); params.push(dateTo); }
+  if (actualDateFrom) {
+    where.push("COALESCE(NULLIF(substr(cd.actual_publish_time, 1, 10), ''), cd.date) >= ?");
+    params.push(actualDateFrom);
+  }
+  if (actualDateTo) {
+    where.push("COALESCE(NULLIF(substr(cd.actual_publish_time, 1, 10), ''), cd.date) <= ?");
+    params.push(actualDateTo);
+  }
+  if (downloadDateFrom) {
+    where.push("substr(cd.downloaded_at, 1, 10) >= ?");
+    params.push(downloadDateFrom);
+  }
+  if (downloadDateTo) {
+    where.push("substr(cd.downloaded_at, 1, 10) <= ?");
+    params.push(downloadDateTo);
+  }
+  if (submittedDateFrom) {
+    where.push("substr(cd.submitted_at, 1, 10) >= ?");
+    params.push(submittedDateFrom);
+  }
+  if (submittedDateTo) {
+    where.push("substr(cd.submitted_at, 1, 10) <= ?");
+    params.push(submittedDateTo);
+  }
   if (cityId) { where.push('cd.city_id = ?'); params.push(cityId); }
   if (status) { where.push('cd.status = ?'); params.push(status); }
+  if (downloadStatus === 'downloaded') where.push('cd.downloaded_at IS NOT NULL');
+  if (downloadStatus === 'not_downloaded') where.push('cd.downloaded_at IS NULL');
+  if (account_id) { where.push('cd.account_id = ?'); params.push(account_id); }
+  if (timeFrom) { where.push('cd.publish_time >= ?'); params.push(timeFrom); }
+  if (timeTo) { where.push('cd.publish_time <= ?'); params.push(timeTo); }
+  if (keyword) {
+    where.push('(cd.video_title LIKE ? OR cd.video_url LIKE ? OR cd.publish_account_name LIKE ? OR c.name LIKE ? OR a.name LIKE ? OR a.platform LIKE ?)');
+    params.push(...Array(6).fill(`%${keyword}%`));
+  }
   if (isCityRole(req.user.role)) {
     where.push('cd.city_id = ?');
     params.push(req.user.city_id || '__none__');
@@ -2130,9 +2268,98 @@ app.get('/api/city-distributions', authRequired, (req, res) => {
     LIMIT ? OFFSET ?
   `).all(...params, parseInt(pageSize), (parseInt(page) - 1) * parseInt(pageSize));
   
-  const { total } = db.prepare(`SELECT COUNT(*) as total FROM city_distributions cd ${whereStr}`).get(...params);
+  const { total } = db.prepare(`
+    SELECT COUNT(*) as total
+    FROM city_distributions cd
+    LEFT JOIN cities c ON cd.city_id = c.id
+    LEFT JOIN accounts a ON cd.account_id = a.id
+    ${whereStr}
+  `).get(...params);
   
   res.json(success({ list: distributions, total, page: parseInt(page), pageSize: parseInt(pageSize) }));
+});
+
+app.post('/api/city-distributions/:id/download', authRequired, (req, res) => {
+  if (!isCityRole(req.user.role)) {
+    return res.status(403).json(error('仅城市端可记录素材下载', 403));
+  }
+  const distribution = db.prepare(`
+    SELECT id, city_id, video_url, material_url, downloaded_at, download_count
+    FROM city_distributions WHERE id = ?
+  `).get(req.params.id);
+  if (!distribution) return res.status(404).json(error('下发任务不存在', 404));
+  if (!req.user.city_id || distribution.city_id !== req.user.city_id) {
+    return res.status(403).json(error('无权下载其他城市的素材', 403));
+  }
+  if (!distribution.video_url && !distribution.material_url) {
+    return res.status(400).json(error('当前任务没有可下载的素材', 400));
+  }
+
+  const now = dayjs().format('YYYY-MM-DD HH:mm:ss');
+  db.prepare(`
+    UPDATE city_distributions
+    SET downloaded_at = COALESCE(downloaded_at, ?),
+        last_downloaded_at = ?,
+        download_count = COALESCE(download_count, 0) + 1,
+        downloaded_by = COALESCE(downloaded_by, ?),
+        updated_at = CURRENT_TIMESTAMP
+    WHERE id = ?
+  `).run(now, now, req.user.id, distribution.id);
+
+  const updated = db.prepare(`
+    SELECT id, downloaded_at, last_downloaded_at, download_count, downloaded_by
+    FROM city_distributions WHERE id = ?
+  `).get(distribution.id);
+  res.json(success(updated, '已记录素材下载'));
+});
+
+app.get('/api/cities/:id/task-detail', authRequired, (req, res) => {
+  const cityId = req.params.id;
+  if (isCityRole(req.user.role) && req.user.city_id !== cityId) {
+    return res.status(403).json(error('无权查看其他城市的任务', 403));
+  }
+  const city = db.prepare('SELECT id, name, status FROM cities WHERE id = ?').get(cityId);
+  if (!city) return res.status(404).json(error('城市不存在', 404));
+
+  const requestedMonth = /^\d{4}-\d{2}$/.test(String(req.query.month || ''))
+    ? String(req.query.month)
+    : dayjs().format('YYYY-MM');
+  const monthStart = `${requestedMonth}-01`;
+  const monthEnd = dayjs(monthStart).endOf('month').format('YYYY-MM-DD');
+  const today = dayjs().format('YYYY-MM-DD');
+
+  const summary = db.prepare(`
+    SELECT
+      COUNT(*) AS monthAssigned,
+      SUM(CASE WHEN date = ? THEN 1 ELSE 0 END) AS todayAssigned,
+      SUM(CASE WHEN status = 'published' THEN 1 ELSE 0 END) AS monthPublished,
+      SUM(CASE WHEN date = ? AND status = 'published' THEN 1 ELSE 0 END) AS todayPublished,
+      SUM(CASE WHEN downloaded_at IS NOT NULL THEN 1 ELSE 0 END) AS downloaded,
+      SUM(CASE WHEN downloaded_at IS NULL THEN 1 ELSE 0 END) AS notDownloaded,
+      SUM(CASE WHEN status != 'published' AND date < ? THEN 1 ELSE 0 END) AS overdue
+    FROM city_distributions
+    WHERE city_id = ? AND date >= ? AND date <= ?
+  `).get(today, today, today, cityId, monthStart, monthEnd);
+
+  const tasks = db.prepare(`
+    SELECT cd.*, a.name AS account_name, a.platform
+    FROM city_distributions cd
+    LEFT JOIN accounts a ON a.id = cd.account_id
+    WHERE cd.city_id = ? AND cd.date >= ? AND cd.date <= ?
+    ORDER BY cd.date DESC, COALESCE(cd.publish_time, '') DESC, cd.created_at DESC
+  `).all(cityId, monthStart, monthEnd).map(task => ({
+    ...task,
+    display_status: task.status !== 'published' && task.date < today ? 'overdue' : task.status
+  }));
+
+  const normalizedSummary = Object.fromEntries(
+    Object.entries(summary || {}).map(([key, value]) => [key, Number(value || 0)])
+  );
+  normalizedSummary.publishRate = normalizedSummary.monthAssigned
+    ? Math.round((normalizedSummary.monthPublished / normalizedSummary.monthAssigned) * 100)
+    : 0;
+
+  res.json(success({ city, month: requestedMonth, summary: normalizedSummary, tasks }));
 });
 
 app.post('/api/city-distributions', (req, res) => {
@@ -2159,7 +2386,17 @@ app.post('/api/city-distributions', (req, res) => {
   const id = generateId();
   const isCitySubmit = isCityRole(req.user.role);
   const finalStatus = isCitySubmit ? 'published' : (status || 'distributed');
-  const finalActualPublishTime = actual_publish_time || (finalStatus === 'published' ? date : '');
+  if (isCitySubmit && (finalStatus === 'published' || publish_url || actual_publish_time)) {
+    if (!actual_publish_time) {
+      return res.status(400).json(error('请填写实际发布时间', 400));
+    }
+    const actualPublishDate = String(actual_publish_time).slice(0, 10);
+    const taskDate = String(date).slice(0, 10);
+    if (actualPublishDate !== taskDate) {
+      return res.status(400).json(error(`实际发布时间必须与发布日期一致：${taskDate}`, 400));
+    }
+  }
+  const finalActualPublishTime = actual_publish_time || '';
   const finalPublishedAt = finalStatus === 'published' ? dayjs().format() : null;
   db.prepare(`
     INSERT INTO city_distributions (
@@ -2203,6 +2440,16 @@ app.put('/api/city-distributions/:id', (req, res) => {
   if (!existing) return res.status(404).json(error('下发任务不存在', 404));
   if (isCityRole(req.user.role) && existing.city_id !== req.user.city_id) {
     return res.status(403).json(error('只能操作本城市任务', 403));
+  }
+  if (isCityRole(req.user.role) && (status === 'published' || publish_url || actual_publish_time)) {
+    if (!actual_publish_time) {
+      return res.status(400).json(error('请填写实际发布时间', 400));
+    }
+    const actualPublishDate = String(actual_publish_time).slice(0, 10);
+    const taskDate = String(existing.date).slice(0, 10);
+    if (actualPublishDate !== taskDate) {
+      return res.status(400).json(error(`实际发布时间必须与下发任务日期一致：${taskDate}`, 400));
+    }
   }
   if (account_id && city_id) {
     const account = db.prepare('SELECT id, city_id, type FROM accounts WHERE id = ? AND status != ?').get(account_id, 'archived');
@@ -2267,6 +2514,24 @@ app.post('/api/city-distributions/batch', (req, res) => {
   if (!Array.isArray(items) || items.length === 0) {
     return res.status(400).json(error('请求体必须是非空数组', 400));
   }
+  const normalizeDistributionUrl = (value = '') => String(value || '').trim().replace(/[，,。.;；]+$/g, '');
+  const urlGroups = new Map();
+  items.forEach((item, index) => {
+    const url = normalizeDistributionUrl(item.video_url || item.material_url);
+    if (!url) return;
+    if (!urlGroups.has(url)) urlGroups.set(url, []);
+    urlGroups.get(url).push(index + 1);
+  });
+  const duplicates = [...urlGroups.entries()]
+    .filter(([, rows]) => rows.length > 1)
+    .map(([video_url, rows]) => ({ video_url, rows }));
+  if (duplicates.length) {
+    return res.status(400).json({
+      code: 400,
+      message: `发现 ${duplicates.length} 个重复链接，请修改后再下发`,
+      data: { duplicates }
+    });
+  }
   const insert = db.prepare(`
     INSERT INTO city_distributions (
       id, date, city_id, account_id, video_title, video_url, material_url,
@@ -2292,8 +2557,8 @@ app.post('/api/city-distributions/batch', (req, res) => {
         cityId,
         item.account_id,
         item.video_title || '城市下发任务',
-        item.video_url || item.material_url || '',
-        item.material_url || item.video_url || '',
+        normalizeDistributionUrl(item.video_url || item.material_url),
+        normalizeDistributionUrl(item.material_url || item.video_url),
         item.publish_time || item.time || '',
         item.publish_requirement || item.requirement || '',
         item.status || 'distributed',
@@ -2321,6 +2586,133 @@ app.post('/api/city-distributions/batch', (req, res) => {
   } catch (e) {
     res.status(400).json(error(e.message || '批量下发失败', 400));
   }
+});
+
+// ========== 城市蓝V账号 API ==========
+app.get('/api/bluev-fields', authRequired, (req, res) => {
+  const fields = db.prepare('SELECT * FROM bluev_fields WHERE is_active = 1 ORDER BY sort_order').all();
+  res.json(success(fields));
+});
+
+app.post('/api/bluev-fields', authRequired, (req, res) => {
+  const { field_key, field_label, field_type = 'text', field_options = '', sort_order = 0, is_required = 0 } = req.body;
+  if (!field_key || !field_label) {
+    return res.status(400).json(error('字段标识和字段名称不能为空', 400));
+  }
+  const exists = db.prepare('SELECT id FROM bluev_fields WHERE field_key = ?').get(field_key);
+  if (exists) {
+    return res.status(400).json(error('字段标识已存在', 400));
+  }
+  const id = generateId();
+  db.prepare(`
+    INSERT INTO bluev_fields (id, field_key, field_label, field_type, field_options, sort_order, is_required, is_active)
+    VALUES (?, ?, ?, ?, ?, ?, ?, 1)
+  `).run(id, field_key, field_label, field_type, field_options, sort_order, is_required ? 1 : 0);
+  res.json(success({ id, field_key, field_label }, '字段创建成功'));
+});
+
+app.put('/api/bluev-fields/:id', authRequired, (req, res) => {
+  const { field_label, field_type, field_options, sort_order, is_required, is_active } = req.body;
+  const updatedAt = dayjs().format('YYYY-MM-DD HH:mm:ss');
+  const reqInt = (val) => val === undefined || val === null ? null : (val ? 1 : 0);
+  db.prepare(`
+    UPDATE bluev_fields SET 
+      field_label = COALESCE(?, field_label),
+      field_type = COALESCE(?, field_type),
+      field_options = COALESCE(?, field_options),
+      sort_order = COALESCE(?, sort_order),
+      is_required = COALESCE(?, is_required),
+      is_active = COALESCE(?, is_active),
+      updated_at = ?
+    WHERE id = ?
+  `).run(
+    field_label ?? null,
+    field_type ?? null,
+    field_options ?? null,
+    sort_order ?? null,
+    reqInt(is_required),
+    reqInt(is_active),
+    updatedAt,
+    req.params.id
+  );
+  res.json(success(null, '字段更新成功'));
+});
+
+app.delete('/api/bluev-fields/:id', authRequired, (req, res) => {
+  db.prepare('DELETE FROM bluev_fields WHERE id = ?').run(req.params.id);
+  res.json(success(null, '字段删除成功'));
+});
+
+app.get('/api/bluev-accounts', authRequired, (req, res) => {
+  const { page = 1, pageSize = 20, cityId, keyword } = req.query;
+  let where = [];
+  let params = [];
+  if (cityId) { where.push('city_id = ?'); params.push(cityId); }
+  if (keyword) {
+    where.push('(city_name LIKE ? OR data LIKE ?)');
+    params.push(`%${keyword}%`, `%${keyword}%`);
+  }
+  if (isCityRole(req.user.role)) {
+    where.push('city_id = ?');
+    params.push(req.user.city_id || '__none__');
+  }
+  const whereStr = where.length ? `WHERE ${where.join(' AND ')}` : '';
+  const accounts = db.prepare(`
+    SELECT * FROM bluev_accounts ${whereStr} ORDER BY created_at DESC LIMIT ? OFFSET ?
+  `).all(...params, parseInt(pageSize), (parseInt(page) - 1) * parseInt(pageSize));
+  const { total } = db.prepare(`SELECT COUNT(*) as total FROM bluev_accounts ${whereStr}`).get(...params);
+  accounts.forEach(a => {
+    try { a.data = JSON.parse(a.data); } catch { a.data = {}; }
+  });
+  res.json(success({ list: accounts, total, page: parseInt(page), pageSize: parseInt(pageSize) }));
+});
+
+app.post('/api/bluev-accounts', authRequired, (req, res) => {
+  const { city_id, city_name, data, created_at } = req.body;
+  if (!city_id || !city_name) {
+    return res.status(400).json(error('城市信息不能为空', 400));
+  }
+  if (isCityRole(req.user.role) && req.user.city_id !== city_id) {
+    return res.status(403).json(error('只能管理自己城市的数据', 403));
+  }
+  const id = generateId();
+  const now = dayjs().format('YYYY-MM-DD HH:mm:ss');
+  const createdAt = created_at || now;
+  db.prepare(`
+    INSERT INTO bluev_accounts (id, city_id, city_name, data, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).run(id, city_id, city_name, JSON.stringify(data || {}), createdAt, now);
+  res.json(success({ id }, '账号注册成功'));
+});
+
+app.put('/api/bluev-accounts/:id', authRequired, (req, res) => {
+  const { city_id, city_name, data, created_at } = req.body;
+  const account = db.prepare('SELECT city_id FROM bluev_accounts WHERE id = ?').get(req.params.id);
+  if (!account) return res.status(404).json(error('账号不存在', 404));
+  if (isCityRole(req.user.role) && req.user.city_id !== account.city_id) {
+    return res.status(403).json(error('只能管理自己城市的数据', 403));
+  }
+  const updatedAt = dayjs().format('YYYY-MM-DD HH:mm:ss');
+  db.prepare(`
+    UPDATE bluev_accounts SET 
+      city_id = COALESCE(?, city_id),
+      city_name = COALESCE(?, city_name),
+      data = COALESCE(?, data),
+      created_at = COALESCE(?, created_at),
+      updated_at = ?
+    WHERE id = ?
+  `).run(city_id, city_name, JSON.stringify(data || {}), created_at, updatedAt, req.params.id);
+  res.json(success(null, '账号更新成功'));
+});
+
+app.delete('/api/bluev-accounts/:id', authRequired, (req, res) => {
+  const account = db.prepare('SELECT city_id FROM bluev_accounts WHERE id = ?').get(req.params.id);
+  if (!account) return res.status(404).json(error('账号不存在', 404));
+  if (isCityRole(req.user.role) && req.user.city_id !== account.city_id) {
+    return res.status(403).json(error('只能管理自己城市的数据', 403));
+  }
+  db.prepare('DELETE FROM bluev_accounts WHERE id = ?').run(req.params.id);
+  res.json(success(null, '账号删除成功'));
 });
 
 // ========== 发布排期 API ==========
@@ -2530,6 +2922,70 @@ app.post('/api/schedules/batch', (req, res) => {
 });
 
 // ========== 数据追踪 API ==========
+const unifiedReportsCte = `
+  WITH reports AS (
+    SELECT
+      'batch:' || dt.report_batch_id AS id,
+      CASE WHEN dt.period_start = dt.period_end THEN 'single_snapshot' ELSE 'range_summary' END AS record_type,
+      dt.report_batch_id, dt.period_start, dt.period_end, dt.account_id,
+      a.name AS account_name, a.platform, a.city_id, c.name AS city_name,
+      MAX(dt.video_title) AS video_title,
+      SUM(COALESCE(dt.play_count, 0)) AS views,
+      SUM(COALESCE(dt.like_count, 0)) AS likes,
+      SUM(COALESCE(dt.comment_count, 0)) AS comments,
+      SUM(COALESCE(dt.favorite_count, 0)) AS favorites,
+      SUM(COALESCE(dt.share_count, 0)) AS shares,
+      SUM(COALESCE(dt.deal_count, 0)) AS deals,
+      SUM(COALESCE(dt.deal_amount, 0)) AS revenue,
+      MAX(COALESCE(dt.report_source, 'manual')) AS report_source,
+      MAX(dt.created_at) AS created_at
+    FROM data_tracks dt
+    LEFT JOIN accounts a ON a.id = dt.account_id
+    LEFT JOIN cities c ON c.id = a.city_id
+    WHERE dt.report_batch_id IS NOT NULL
+    GROUP BY dt.report_batch_id, dt.period_start, dt.period_end, dt.account_id,
+      a.name, a.platform, a.city_id, c.name
+    UNION ALL
+    SELECT
+      dt.id, 'single_record', NULL, dt.date, dt.date, dt.account_id,
+      a.name, a.platform, a.city_id, c.name,
+      COALESCE(dt.video_title, '单日手工数据'),
+      COALESCE(dt.play_count, 0), COALESCE(dt.like_count, 0), COALESCE(dt.comment_count, 0),
+      COALESCE(dt.favorite_count, 0), COALESCE(dt.share_count, 0),
+      COALESCE(dt.deal_count, 0), COALESCE(dt.deal_amount, 0),
+      COALESCE(dt.report_source, 'manual'), dt.created_at
+    FROM data_tracks dt
+    LEFT JOIN accounts a ON a.id = dt.account_id
+    LEFT JOIN cities c ON c.id = a.city_id
+    WHERE dt.report_batch_id IS NULL
+    UNION ALL
+    SELECT
+      cd.id, 'published_video', NULL,
+      COALESCE(NULLIF(substr(cd.actual_publish_time, 1, 10), ''), cd.date),
+      COALESCE(NULLIF(substr(cd.actual_publish_time, 1, 10), ''), cd.date),
+      cd.account_id, COALESCE(a.name, cd.publish_account_name, '未绑定账号'),
+      COALESCE(NULLIF(cd.publish_platform, ''), a.platform, 'other'),
+      cd.city_id, c.name, cd.video_title,
+      COALESCE(cd.play_count, 0), COALESCE(cd.like_count, 0), COALESCE(cd.comment_count, 0),
+      COALESCE(cd.favorite_count, 0), COALESCE(cd.share_count, 0),
+      COALESCE(cd.deal_count, 0), COALESCE(cd.deal_amount, 0),
+      'city_publish', cd.created_at
+    FROM city_distributions cd
+    LEFT JOIN accounts a ON a.id = cd.account_id
+    LEFT JOIN cities c ON c.id = cd.city_id
+    WHERE cd.status = 'published'
+      AND (
+        COALESCE(cd.play_count, 0) != 0 OR
+        COALESCE(cd.like_count, 0) != 0 OR
+        COALESCE(cd.comment_count, 0) != 0 OR
+        COALESCE(cd.favorite_count, 0) != 0 OR
+        COALESCE(cd.share_count, 0) != 0 OR
+        COALESCE(cd.deal_count, 0) != 0 OR
+        COALESCE(cd.deal_amount, 0) != 0
+      )
+  )
+`;
+
 app.get('/api/data-tracks', authRequired, (req, res) => {
   const { page = 1, pageSize = 20, dateFrom, dateTo, accountId, range } = req.query;
   const rangeDates = parseRangeToDates({ dateFrom, dateTo, range });
@@ -2558,12 +3014,18 @@ app.get('/api/data-tracks', authRequired, (req, res) => {
         c.name as city_name,
         a.name as account_name,
         COALESCE(a.platform, 'other') as platform,
-        s.video_title,
+        COALESCE(NULLIF(dt.video_title, ''), s.video_title) as video_title,
         dt.play_count as views,
         dt.like_count as likes,
         dt.comment_count as comments,
         dt.deal_count as deals,
         dt.deal_amount as revenue,
+        dt.favorite_count as favorites,
+        dt.share_count as shares,
+        dt.period_start,
+        dt.period_end,
+        dt.report_batch_id,
+        COALESCE(dt.report_source, 'manual') as report_source,
         NULL as publish_url,
         NULL as publish_screenshot,
         'manual' as source,
@@ -2589,6 +3051,12 @@ app.get('/api/data-tracks', authRequired, (req, res) => {
         cd.comment_count as comments,
         cd.deal_count as deals,
         cd.deal_amount as revenue,
+        cd.favorite_count as favorites,
+        cd.share_count as shares,
+        NULL as period_start,
+        NULL as period_end,
+        NULL as report_batch_id,
+        'city' as report_source,
         cd.publish_url,
         cd.publish_screenshot,
         'city' as source,
@@ -2672,6 +3140,243 @@ app.post('/api/data-tracks', authRequired, (req, res) => {
   res.json(success({ id }, '创建成功'));
 });
 
+app.post('/api/data-tracks/range-report', authRequired, (req, res) => {
+  validateRequired(req.body, ['period_start', 'period_end', 'account_id']);
+  const start = String(req.body.period_start);
+  const end = String(req.body.period_end);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(start) || !/^\d{4}-\d{2}-\d{2}$/.test(end) || dayjs(end).isBefore(dayjs(start))) {
+    return res.status(400).json(error('统计周期不合法', 400));
+  }
+
+  const account = db.prepare(`
+    SELECT id, city_id, name, platform FROM accounts WHERE id = ? AND status != ?
+  `).get(req.body.account_id, 'archived');
+  if (!account) return res.status(400).json(error('请选择有效的发布账号', 400));
+  if (isCityRole(req.user.role) && account.city_id !== req.user.city_id) {
+    return res.status(403).json(error('只能录入本城市账号的数据', 403));
+  }
+
+  let reportSource = isCityRole(req.user.role) ? 'city_manual' : 'admin_manual';
+  const replaceBatchId = String(req.body.replace_batch_id || '').trim();
+  if (replaceBatchId) {
+    const replaceBatch = db.prepare(`
+      SELECT dt.report_batch_id, dt.account_id, dt.report_source, a.city_id
+      FROM data_tracks dt
+      LEFT JOIN accounts a ON a.id = dt.account_id
+      WHERE dt.report_batch_id = ? LIMIT 1
+    `).get(replaceBatchId);
+    if (!replaceBatch || replaceBatch.account_id !== account.id) {
+      return res.status(400).json(error('原数据批次不存在或账号不一致', 400));
+    }
+    if (isCityRole(req.user.role) && replaceBatch.city_id !== req.user.city_id) {
+      return res.status(403).json(error('无权修改其他城市的数据', 403));
+    }
+    reportSource = replaceBatch.report_source || reportSource;
+  }
+  const overlaps = db.prepare(`
+    SELECT report_batch_id, report_source, period_start, period_end, COUNT(*) AS row_count
+    FROM data_tracks
+    WHERE account_id = ?
+      AND period_start IS NOT NULL AND period_end IS NOT NULL
+      AND period_start <= ? AND period_end >= ?
+      AND (? = '' OR report_batch_id != ?)
+    GROUP BY report_batch_id, report_source, period_start, period_end
+  `).all(account.id, end, start, replaceBatchId, replaceBatchId);
+  const exact = overlaps.filter(item => item.period_start === start && item.period_end === end);
+  const partial = overlaps.filter(item => item.period_start !== start || item.period_end !== end);
+  if (partial.length && req.body.overwrite !== true) {
+    return res.status(409).json({ code: 409, message: '所选时间与已有数据重叠，请确认是否覆盖', data: { overlaps: partial } });
+  }
+
+  const days = dayjs(end).diff(dayjs(start), 'day') + 1;
+  const distributeInteger = (value) => {
+    const total = Math.max(0, Math.round(Number(value || 0)));
+    const base = Math.floor(total / days);
+    const remainder = total - base * days;
+    return Array.from({ length: days }, (_, index) => base + (index < remainder ? 1 : 0));
+  };
+  const distributeMoney = (value) => distributeInteger(Math.round(Math.max(0, Number(value || 0)) * 100))
+    .map(cents => cents / 100);
+  const metrics = {
+    plays: distributeInteger(req.body.play_count ?? req.body.views),
+    likes: distributeInteger(req.body.like_count ?? req.body.likes),
+    comments: distributeInteger(req.body.comment_count ?? req.body.comments),
+    favorites: distributeInteger(req.body.favorite_count ?? req.body.favorites),
+    shares: distributeInteger(req.body.share_count ?? req.body.shares),
+    deals: distributeInteger(req.body.deal_count ?? req.body.deals),
+    amounts: distributeMoney(req.body.deal_amount ?? req.body.revenue)
+  };
+  const batchId = generateId();
+  const batchesToDelete = [...new Set([
+    ...(replaceBatchId ? [replaceBatchId] : []),
+    ...exact.map(item => item.report_batch_id),
+    ...(req.body.overwrite === true ? partial.map(item => item.report_batch_id) : [])
+  ].filter(Boolean))];
+  const previousRows = batchesToDelete.length
+    ? db.prepare(`SELECT * FROM data_tracks WHERE report_batch_id IN (${batchesToDelete.map(() => '?').join(',')})`).all(...batchesToDelete)
+    : [];
+  const insert = db.prepare(`
+    INSERT INTO data_tracks (
+      id, date, account_id, play_count, like_count, comment_count, favorite_count,
+      share_count, deal_count, deal_amount, video_title, captured_at,
+      period_start, period_end, report_batch_id, report_source, updated_by, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+  const saveReport = db.transaction(() => {
+    for (const oldBatchId of batchesToDelete) {
+      db.prepare('DELETE FROM data_tracks WHERE report_batch_id = ?').run(oldBatchId);
+    }
+    db.prepare(`
+      DELETE FROM city_distributions
+      WHERE account_id = ? AND city_remark LIKE '区间汇总 %'
+        AND city_remark LIKE ?
+    `).run(account.id, `%${start} 至 ${end}%`);
+    for (let index = 0; index < days; index++) {
+      const date = dayjs(start).add(index, 'day').format('YYYY-MM-DD');
+      insert.run(
+        generateId(), date, account.id, metrics.plays[index], metrics.likes[index], metrics.comments[index],
+        metrics.favorites[index], metrics.shares[index], metrics.deals[index], metrics.amounts[index],
+        req.body.video_title || `区间汇总 - ${start} 至 ${end}`, dayjs().format(),
+        start, end, batchId, reportSource, req.user.id, dayjs().format()
+      );
+    }
+  });
+  saveReport();
+
+  writeDataAudit({
+    action: batchesToDelete.length ? 'replace' : 'create',
+    targetType: 'report_batch', targetId: batchId, accountId: account.id, cityId: account.city_id,
+    periodStart: start, periodEnd: end, before: previousRows,
+    after: { ...req.body, report_batch_id: batchId, report_source: reportSource, days }, user: req.user
+  });
+
+  res.json(success({
+    batch_id: batchId,
+    period_start: start,
+    period_end: end,
+    days,
+    replaced: batchesToDelete.length > 0
+  }, batchesToDelete.length ? '原周期数据已覆盖' : '区间数据已保存'));
+});
+
+app.delete('/api/data-tracks/batch/:batchId', authRequired, (req, res) => {
+  const rows = db.prepare(`
+    SELECT dt.*, a.city_id
+    FROM data_tracks dt
+    LEFT JOIN accounts a ON a.id = dt.account_id
+    WHERE dt.report_batch_id = ?
+  `).all(req.params.batchId);
+  if (!rows.length) return res.status(404).json(error('数据批次不存在', 404));
+  if (isCityRole(req.user.role) && rows.some(row => row.city_id !== req.user.city_id)) {
+    return res.status(403).json(error('无权删除其他城市的数据', 403));
+  }
+  db.prepare('DELETE FROM data_tracks WHERE report_batch_id = ?').run(req.params.batchId);
+  writeDataAudit({
+    action: 'delete', targetType: 'report_batch', targetId: req.params.batchId,
+    accountId: rows[0].account_id, cityId: rows[0].city_id,
+    periodStart: rows[0].period_start, periodEnd: rows[0].period_end, before: rows, after: null, user: req.user
+  });
+  res.json(success(null, '数据已删除'));
+});
+
+app.put('/api/data-tracks/:id', authRequired, (req, res) => {
+  const existing = db.prepare(`
+    SELECT dt.*, a.city_id FROM data_tracks dt
+    LEFT JOIN accounts a ON a.id = dt.account_id WHERE dt.id = ?
+  `).get(req.params.id);
+  if (!existing) return res.status(404).json(error('数据记录不存在', 404));
+  if (existing.report_batch_id) return res.status(400).json(error('区间数据请按完整批次编辑', 400));
+  if (isCityRole(req.user.role) && existing.city_id !== req.user.city_id) {
+    return res.status(403).json(error('无权修改其他城市的数据', 403));
+  }
+  const accountId = req.body.account_id || existing.account_id;
+  const account = db.prepare('SELECT id, city_id FROM accounts WHERE id = ? AND status != ?').get(accountId, 'archived');
+  if (!account) return res.status(400).json(error('请选择有效的发布账号', 400));
+  if (isCityRole(req.user.role) && account.city_id !== req.user.city_id) {
+    return res.status(403).json(error('只能录入本城市账号的数据', 403));
+  }
+  db.prepare(`
+    UPDATE data_tracks SET
+      date = ?, account_id = ?, play_count = ?, like_count = ?, comment_count = ?,
+      favorite_count = ?, share_count = ?, deal_count = ?, deal_amount = ?,
+      video_title = ?, updated_by = ?, updated_at = ?
+    WHERE id = ?
+  `).run(
+    req.body.date || existing.date, accountId,
+    Number(req.body.play_count ?? req.body.views ?? existing.play_count ?? 0),
+    Number(req.body.like_count ?? req.body.likes ?? existing.like_count ?? 0),
+    Number(req.body.comment_count ?? req.body.comments ?? existing.comment_count ?? 0),
+    Number(req.body.favorite_count ?? req.body.favorites ?? existing.favorite_count ?? 0),
+    Number(req.body.share_count ?? req.body.shares ?? existing.share_count ?? 0),
+    Number(req.body.deal_count ?? req.body.deals ?? existing.deal_count ?? 0),
+    Number(req.body.deal_amount ?? req.body.revenue ?? existing.deal_amount ?? 0),
+    req.body.video_title ?? existing.video_title, req.user.id, dayjs().format(), req.params.id
+  );
+  const updated = db.prepare('SELECT * FROM data_tracks WHERE id = ?').get(req.params.id);
+  writeDataAudit({
+    action: 'update', targetType: 'single_record', targetId: req.params.id,
+    accountId, cityId: account.city_id, periodStart: updated.date, periodEnd: updated.date,
+    before: existing, after: updated, user: req.user
+  });
+  res.json(success({ id: req.params.id }, '数据已更新'));
+});
+
+app.delete('/api/data-tracks/:id', authRequired, (req, res) => {
+  const existing = db.prepare(`
+    SELECT dt.*, a.city_id FROM data_tracks dt
+    LEFT JOIN accounts a ON a.id = dt.account_id WHERE dt.id = ?
+  `).get(req.params.id);
+  if (!existing) return res.status(404).json(error('数据记录不存在', 404));
+  if (existing.report_batch_id) return res.status(400).json(error('区间数据请按完整批次删除', 400));
+  if (isCityRole(req.user.role) && existing.city_id !== req.user.city_id) {
+    return res.status(403).json(error('无权删除其他城市的数据', 403));
+  }
+  db.prepare('DELETE FROM data_tracks WHERE id = ?').run(req.params.id);
+  writeDataAudit({
+    action: 'delete', targetType: 'single_record', targetId: req.params.id,
+    accountId: existing.account_id, cityId: existing.city_id,
+    periodStart: existing.date, periodEnd: existing.date, before: existing, after: null, user: req.user
+  });
+  res.json(success(null, '数据已删除'));
+});
+
+app.get('/api/data-report-details', authRequired, (req, res) => {
+  const rangeDates = parseRangeToDates(req.query);
+  const page = Math.max(1, Number(req.query.page || 1));
+  const pageSize = Math.min(100, Math.max(10, Number(req.query.pageSize || 20)));
+  const where = ['period_end >= ?', 'period_start <= ?'];
+  const params = [rangeDates.start, rangeDates.end];
+  if (req.query.platform) { where.push('platform = ?'); params.push(req.query.platform); }
+  if (req.query.accountId) { where.push('account_id = ?'); params.push(req.query.accountId); }
+  if (req.query.cityId) { where.push('city_id = ?'); params.push(req.query.cityId); }
+  if (req.query.recordType) { where.push('record_type = ?'); params.push(req.query.recordType); }
+  if (isCityRole(req.user.role)) { where.push('city_id = ?'); params.push(req.user.city_id || '__none__'); }
+  const whereSql = `WHERE ${where.join(' AND ')}`;
+  const list = db.prepare(`
+    ${unifiedReportsCte}
+    SELECT * FROM reports ${whereSql}
+    ORDER BY period_end DESC, created_at DESC
+    LIMIT ? OFFSET ?
+  `).all(...params, pageSize, (page - 1) * pageSize);
+  const { total } = db.prepare(`${unifiedReportsCte} SELECT COUNT(*) AS total FROM reports ${whereSql}`).get(...params);
+  res.json(success({ list, total, page, pageSize }));
+});
+
+app.get('/api/data-report-audits', authRequired, adminRequired, (req, res) => {
+  const page = Math.max(1, Number(req.query.page || 1));
+  const pageSize = Math.min(100, Math.max(10, Number(req.query.pageSize || 20)));
+  const where = [];
+  const params = [];
+  if (req.query.accountId) { where.push('account_id = ?'); params.push(req.query.accountId); }
+  if (req.query.cityId) { where.push('city_id = ?'); params.push(req.query.cityId); }
+  if (req.query.action) { where.push('action = ?'); params.push(req.query.action); }
+  const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
+  const list = db.prepare(`SELECT * FROM data_report_audit_logs ${whereSql} ORDER BY created_at DESC LIMIT ? OFFSET ?`)
+    .all(...params, pageSize, (page - 1) * pageSize);
+  const { total } = db.prepare(`SELECT COUNT(*) AS total FROM data_report_audit_logs ${whereSql}`).get(...params);
+  res.json(success({ list, total, page, pageSize }));
+});
+
 app.get('/api/data-dashboard', authRequired, (req, res) => {
   const { start, end } = parseRangeToDates(req.query);
   
@@ -2688,6 +3393,7 @@ app.get('/api/data-dashboard', authRequired, (req, res) => {
     WITH all_tracks AS (
       SELECT
         dt.date,
+        COALESCE(dt.report_batch_id, dt.id) as record_key,
         COALESCE(dt.play_count, 0) as play_count,
         COALESCE(dt.like_count, 0) as like_count,
         COALESCE(dt.comment_count, 0) as comment_count,
@@ -2699,6 +3405,7 @@ app.get('/api/data-dashboard', authRequired, (req, res) => {
       UNION ALL
       SELECT
         COALESCE(NULLIF(substr(cd.actual_publish_time, 1, 10), ''), cd.date) as date,
+        cd.id as record_key,
         COALESCE(cd.play_count, 0) as play_count,
         COALESCE(cd.like_count, 0) as like_count,
         COALESCE(cd.comment_count, 0) as comment_count,
@@ -2714,7 +3421,7 @@ app.get('/api/data-dashboard', authRequired, (req, res) => {
       COALESCE(SUM(comment_count), 0) as total_comments,
       COALESCE(SUM(deal_count), 0) as total_deals,
       COALESCE(SUM(deal_amount), 0) as total_amount,
-      COUNT(*) as total_videos
+      COUNT(DISTINCT record_key) as total_videos
     FROM all_tracks
     WHERE date >= ? AND date <= ? ${cityFilter}
   `).get(start, end, ...cityParams);
@@ -2724,6 +3431,7 @@ app.get('/api/data-dashboard', authRequired, (req, res) => {
     WITH all_tracks AS (
       SELECT
         dt.date,
+        COALESCE(dt.report_batch_id, dt.id) as record_key,
         COALESCE(a.platform, 'other') as platform,
         COALESCE(dt.play_count, 0) as play_count,
         COALESCE(dt.like_count, 0) as like_count,
@@ -2736,6 +3444,7 @@ app.get('/api/data-dashboard', authRequired, (req, res) => {
       UNION ALL
       SELECT
         COALESCE(NULLIF(substr(cd.actual_publish_time, 1, 10), ''), cd.date) as date,
+        cd.id as record_key,
         COALESCE(NULLIF(cd.publish_platform, ''), a.platform, 'other') as platform,
         COALESCE(cd.play_count, 0) as play_count,
         COALESCE(cd.like_count, 0) as like_count,
@@ -2754,7 +3463,7 @@ app.get('/api/data-dashboard', authRequired, (req, res) => {
 	      COALESCE(SUM(comment_count), 0) as comments,
 	      COALESCE(SUM(deal_count), 0) as deals,
 	      COALESCE(SUM(deal_amount), 0) as revenue,
-	      COUNT(*) as videos
+	      COUNT(DISTINCT record_key) as videos
     FROM all_tracks
     WHERE date >= ? AND date <= ? ${cityFilter}
     GROUP BY platform
@@ -2802,8 +3511,113 @@ app.get('/api/data-dashboard', authRequired, (req, res) => {
     GROUP BY date, platform
     ORDER BY date
   `).all(start, end, ...cityParams);
-  
-  res.json(success({ summary, platformStats, trend }));
+
+  const aggregateCte = `
+    WITH all_tracks AS (
+      SELECT dt.date, dt.account_id, a.name AS account_name, a.platform, a.city_id, c.name AS city_name,
+        COALESCE(dt.play_count, 0) AS views, COALESCE(dt.like_count, 0) AS likes,
+        COALESCE(dt.comment_count, 0) AS comments, COALESCE(dt.deal_count, 0) AS deals,
+        COALESCE(dt.deal_amount, 0) AS revenue,
+        CASE WHEN dt.report_source = 'city_manual' THEN 'city' ELSE 'admin' END AS source
+      FROM data_tracks dt
+      LEFT JOIN accounts a ON a.id = dt.account_id
+      LEFT JOIN cities c ON c.id = a.city_id
+      UNION ALL
+      SELECT COALESCE(NULLIF(substr(cd.actual_publish_time, 1, 10), ''), cd.date), cd.account_id,
+        COALESCE(a.name, cd.publish_account_name, '未绑定账号'),
+        COALESCE(NULLIF(cd.publish_platform, ''), a.platform, 'other'), cd.city_id, c.name,
+        COALESCE(cd.play_count, 0), COALESCE(cd.like_count, 0), COALESCE(cd.comment_count, 0),
+        COALESCE(cd.deal_count, 0), COALESCE(cd.deal_amount, 0), 'city'
+      FROM city_distributions cd
+      LEFT JOIN accounts a ON a.id = cd.account_id
+      LEFT JOIN cities c ON c.id = cd.city_id
+      WHERE cd.status = 'published'
+    )
+  `;
+  const accountStats = db.prepare(`
+    ${aggregateCte}
+    SELECT account_id, account_name, platform, city_id, city_name,
+      SUM(views) AS total_views, SUM(likes) AS total_likes, SUM(comments) AS total_comments,
+      SUM(deals) AS total_deals, SUM(revenue) AS total_revenue,
+      SUM(CASE WHEN source = 'admin' THEN views ELSE 0 END) AS admin_views,
+      SUM(CASE WHEN source = 'city' THEN views ELSE 0 END) AS city_views
+    FROM all_tracks WHERE date >= ? AND date <= ? ${cityFilter}
+    GROUP BY account_id, account_name, platform, city_id, city_name
+    ORDER BY total_views DESC
+  `).all(start, end, ...cityParams);
+  const cityStats = db.prepare(`
+    ${aggregateCte}
+    SELECT city_id, city_name, COUNT(DISTINCT account_id) AS account_count,
+      SUM(views) AS total_views, SUM(likes) AS total_likes, SUM(comments) AS total_comments,
+      SUM(deals) AS total_deals, SUM(revenue) AS total_revenue
+    FROM all_tracks WHERE date >= ? AND date <= ? AND city_id IS NOT NULL ${cityFilter}
+    GROUP BY city_id, city_name ORDER BY total_views DESC
+  `).all(start, end, ...cityParams);
+
+  const reportCountWhere = ['period_end >= ?', 'period_start <= ?'];
+  const reportCountParams = [start, end];
+  if (isCityRole(req.user.role)) { reportCountWhere.push('city_id = ?'); reportCountParams.push(req.user.city_id || '__none__'); }
+  const recordCounts = db.prepare(`
+    ${unifiedReportsCte}
+    SELECT
+      SUM(CASE WHEN record_type = 'published_video' THEN 1 ELSE 0 END) AS published_videos,
+      SUM(CASE WHEN record_type != 'published_video' THEN 1 ELSE 0 END) AS report_batches,
+      SUM(CASE WHEN record_type IN ('single_snapshot', 'single_record') THEN 1 ELSE 0 END) AS single_records,
+      SUM(CASE WHEN record_type = 'range_summary' THEN 1 ELSE 0 END) AS range_records
+    FROM reports WHERE ${reportCountWhere.join(' AND ')}
+  `).get(...reportCountParams);
+  const distributionCountWhere = ['date >= ?', 'date <= ?'];
+  const distributionCountParams = [start, end];
+  if (isCityRole(req.user.role)) {
+    distributionCountWhere.push('city_id = ?');
+    distributionCountParams.push(req.user.city_id || '__none__');
+  }
+  const distributionCounts = db.prepare(`
+    SELECT COUNT(*) AS distributed_videos
+    FROM city_distributions
+    WHERE ${distributionCountWhere.join(' AND ')}
+  `).get(...distributionCountParams);
+  const hqPublished = isCityRole(req.user.role) ? { total: 0 } : db.prepare(`
+    SELECT COUNT(*) AS total
+    FROM schedules
+    WHERE status = 'published'
+      AND city_distribution_id IS NULL
+      AND date >= ? AND date <= ?
+  `).get(start, end);
+  const cityPublishedWhere = [
+    "cd.status = 'published'",
+    "COALESCE(NULLIF(substr(cd.actual_publish_time, 1, 10), ''), cd.date) >= ?",
+    "COALESCE(NULLIF(substr(cd.actual_publish_time, 1, 10), ''), cd.date) <= ?"
+  ];
+  const cityPublishedParams = [start, end];
+  if (isCityRole(req.user.role)) {
+    cityPublishedWhere.push('cd.city_id = ?');
+    cityPublishedParams.push(req.user.city_id || '__none__');
+  }
+  const cityPublished = db.prepare(`
+    SELECT COUNT(*) AS total
+    FROM city_distributions cd
+    WHERE ${cityPublishedWhere.join(' AND ')}
+  `).get(...cityPublishedParams);
+  const accountReportMeta = db.prepare(`
+    ${unifiedReportsCte}
+    SELECT account_id, COUNT(*) AS report_count, MAX(period_end) AS latest_period_end
+    FROM reports WHERE ${reportCountWhere.join(' AND ')}
+    GROUP BY account_id
+  `).all(...reportCountParams);
+  const accountMetaMap = new Map(accountReportMeta.map(item => [item.account_id, item]));
+  accountStats.forEach(item => {
+    const meta = accountMetaMap.get(item.account_id) || {};
+    item.report_count = Number(meta.report_count || 0);
+    item.latest_period = meta.latest_period_end || '';
+  });
+  Object.assign(summary, Object.fromEntries(Object.entries(recordCounts || {}).map(([key, value]) => [key, Number(value || 0)])));
+  summary.distributed_videos = Number(distributionCounts?.distributed_videos || 0);
+  summary.published_hq_videos = Number(hqPublished?.total || 0);
+  summary.published_city_videos = Number(cityPublished?.total || 0);
+  summary.published_videos = summary.published_hq_videos + summary.published_city_videos;
+
+  res.json(success({ summary, platformStats, trend, accountStats, cityStats }));
 });
 
 // ========== AI 报告 API ==========
@@ -3138,8 +3952,8 @@ app.use((err, req, res, next) => {
 });
 
 if (require.main === module) {
-  app.listen(PORT, '127.0.0.1', () => {
-    logger.info(`服务器运行在 http://127.0.0.1:${PORT}`);
+  app.listen(PORT, '0.0.0.0', () => {
+    logger.info(`服务器运行在 http://0.0.0.0:${PORT}`);
   });
 }
 

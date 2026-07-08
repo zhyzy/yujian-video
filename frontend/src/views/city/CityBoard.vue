@@ -192,52 +192,49 @@
         <div class="dialog-head">
           <div>
             <h3>{{ activeCity?.name || '城市' }} · 本月任务明细</h3>
-            <p>{{ taskDetail.month }} · 按下发任务、发布填报和账号完成情况统计</p>
+            <p>{{ taskDetail.month }} · 下发、下载与发布执行情况</p>
           </div>
           <button class="icon-close" @click="showTaskDetail = false"><IconFont name="close" :fallback="Close" /></button>
         </div>
         <div class="detail-body">
-          <div class="detail-summary">
-            <div class="detail-summary-row">
-              <div class="detail-main">
-                <span>本月完成度</span>
-                <strong>{{ taskDetail.progress?.percentage || 0 }}%</strong>
-                <div class="detail-bar"><i :style="{ width: (taskDetail.progress?.percentage || 0) + '%' }"></i></div>
-                <em>已完成 {{ taskDetail.progress?.completed || 0 }}/{{ taskDetail.progress?.target || 0 }} 条</em>
-              </div>
-            </div>
-            <div class="detail-summary-row second">
-              <div class="detail-stat"><strong>{{ taskDetail.totals?.pending || 0 }}</strong><span>待发布</span></div>
-              <div class="detail-stat warn"><strong>{{ taskDetail.totals?.overdue || 0 }}</strong><span>超期</span></div>
-              <div class="detail-stat green"><strong>{{ taskDetail.totals?.reportedVideos || 0 }}</strong><span>已填报数据</span></div>
-            </div>
+          <div class="detail-kpis">
+            <div><strong>{{ taskDetail.summary?.monthAssigned || 0 }}</strong><span>本月下发</span></div>
+            <div><strong>{{ taskDetail.summary?.todayAssigned || 0 }}</strong><span>今日下发</span></div>
+            <div class="green"><strong>{{ taskDetail.summary?.monthPublished || 0 }}</strong><span>本月发布</span></div>
+            <div class="green"><strong>{{ taskDetail.summary?.todayPublished || 0 }}</strong><span>今日发布</span></div>
+            <div class="blue"><strong>{{ taskDetail.summary?.downloaded || 0 }}</strong><span>已点击下载</span></div>
+            <div class="warn"><strong>{{ taskDetail.summary?.notDownloaded || 0 }}</strong><span>未下载</span></div>
+            <div class="danger"><strong>{{ taskDetail.summary?.overdue || 0 }}</strong><span>超期未处理</span></div>
+            <div><strong>{{ taskDetail.summary?.publishRate || 0 }}%</strong><span>发布完成率</span></div>
           </div>
 
           <div class="detail-table-wrap">
             <table class="detail-table">
               <thead>
                 <tr>
+                  <th>下发日期</th>
                   <th>账号</th>
                   <th>平台</th>
-                  <th class="num">任务</th>
-                  <th class="num">已发布</th>
-                  <th class="num">待发布</th>
-                  <th class="num">超期</th>
-                  <th style="width:160px">完成率</th>
+                  <th>素材标题</th>
+                  <th>下载状态</th>
+                  <th>下发时间</th>
+                  <th>实际发布时间</th>
+                  <th>发布状态</th>
                 </tr>
               </thead>
               <tbody>
-                <tr v-for="row in taskDetail.accounts || []" :key="row.city_id + '-' + row.account_id">
-                  <td><strong>{{ row.account_name || '未绑定账号' }}</strong><span>{{ row.city_name }}</span></td>
+                <tr v-for="row in taskDetail.tasks || []" :key="row.id">
+                  <td>{{ row.date }}</td>
+                  <td><strong>{{ row.account_name || '未绑定账号' }}</strong></td>
                   <td>{{ platformLabel(row.platform) }}</td>
-                  <td class="num">{{ row.assigned || 0 }}</td>
-                  <td class="num green">{{ row.published || 0 }}</td>
-                  <td class="num amber">{{ row.pending || 0 }}</td>
-                  <td class="num pink">{{ row.overdue || 0 }}</td>
-                  <td><div class="mini-progress"><i :style="{ width: (row.percentage || 0) + '%' }"></i></div></td>
+                  <td><strong>{{ row.video_title || '城市下发任务' }}</strong></td>
+                  <td><span class="detail-pill" :class="row.downloaded_at ? 'downloaded' : 'not-downloaded'">{{ row.downloaded_at ? '已下载' : '未下载' }}</span><small v-if="row.downloaded_at">{{ formatDownloadTime(row.downloaded_at) }}</small></td>
+                  <td>{{ row.publish_time || row.time || '-' }}</td>
+                  <td>{{ formatActualPublishTime(row.actual_publish_time) }}</td>
+                  <td><span class="detail-pill" :class="row.display_status">{{ distStatusLabel(row.display_status) }}</span></td>
                 </tr>
-                <tr v-if="!(taskDetail.accounts || []).length">
-                  <td colspan="7"><div class="empty-inline">本月暂无下发任务</div></td>
+                <tr v-if="!(taskDetail.tasks || []).length">
+                  <td colspan="8"><div class="empty-inline">本月暂无下发任务</div></td>
                 </tr>
               </tbody>
             </table>
@@ -315,11 +312,25 @@
               <div class="batch-tools">
                 <div class="form-field">
                   <label>批量粘贴</label>
-                  <textarea v-model="batchPasteText" class="text-input paste-input" placeholder="每行一个账号和链接，如：&#10;遇见你真好 https://xxx.com/video1&#10;佳佳 https://xxx.com/video2"></textarea>
+                  <textarea v-model="batchPasteText" class="text-input paste-input" placeholder="支持账号 + 时间 + 链接，同一账号可多行，如：&#10;佳佳 16:00 https://xxx.com/video1&#10;佳佳 20:00 https://xxx.com/video2&#10;露露 16:00 https://xxx.com/video3"></textarea>
                 </div>
                 <div class="batch-actions">
-                  <button class="btn-ghost" @click="applyBatchPaste">自动匹配链接</button>
-                  <button class="btn-ghost" @click="fillEmptyTimes">统一时间 {{ distForm.time || '09:00' }}</button>
+                  <button class="btn-ghost" @click="applyBatchPaste">从粘贴生成任务</button>
+                  <button class="btn-ghost" @click="generateDualTimeRows">生成 16:00 / 20:00</button>
+                  <label class="duplicate-switch">
+                    <input v-model="batchDuplicateCheck" type="checkbox" />
+                    <span>检测重复链接</span>
+                  </label>
+                  <div class="time-apply-group">
+                    <el-time-picker
+                      v-model="batchUnifyTime"
+                      value-format="HH:mm"
+                      format="HH:mm"
+                      placeholder="选择时间"
+                      class="unify-time-picker"
+                    />
+                    <button class="btn-ghost primary-outline" @click="applyUnifyTime">统一应用</button>
+                  </div>
                 </div>
               </div>
 
@@ -331,10 +342,16 @@
                       <th>账号</th>
                       <th style="width:120px">时间</th>
                       <th>视频链接 / 素材地址</th>
+                      <th style="width:110px">检测状态</th>
+                      <th style="width:80px">操作</th>
                     </tr>
                   </thead>
                   <tbody>
-                    <tr v-for="row in batchRows" :key="row.account_id" :class="{ filled: row.video_url }">
+                    <tr
+                      v-for="row in batchRows"
+                      :key="row.local_id"
+                      :class="{ filled: row.video_url, duplicate: batchDuplicateCheck && isDuplicateBatchUrl(row.video_url) }"
+                    >
                       <td><input v-model="row.enabled" type="checkbox" /></td>
                       <td>
                         <strong>{{ row.account_name }}</strong>
@@ -342,11 +359,24 @@
                       </td>
                       <td><input v-model="row.time" class="mini-input" placeholder="09:00" /></td>
                       <td><input v-model.trim="row.video_url" class="mini-input link" placeholder="粘贴该账号今天要发布的视频链接" /></td>
+                      <td>
+                        <span v-if="batchDuplicateCheck && isDuplicateBatchUrl(row.video_url)" class="duplicate-tag">重复链接</span>
+                        <span v-else-if="row.video_url" class="ok-tag">正常</span>
+                        <span v-else class="muted-tag">待填写</span>
+                      </td>
+                      <td><button class="row-link danger" @click="removeBatchRow(row)">删除</button></td>
                     </tr>
                   </tbody>
                 </table>
               </div>
-              <div class="batch-tip">批量下发会生成 {{ batchSubmitRows.length }} 条独立任务，最近下发记录和城市端会按账号逐条显示。</div>
+              <div class="batch-tip" :class="{ danger: batchDuplicateCheck && duplicateBatchUrls.length }">
+                <template v-if="batchDuplicateCheck && duplicateBatchUrls.length">
+                  发现 {{ duplicateBatchUrls.length }} 个重复链接，已高亮，请修改后再下发。
+                </template>
+                <template v-else>
+                  批量下发会生成 {{ batchSubmitRows.length }} 条独立任务，同一账号可同时下发多个时间段。
+                </template>
+              </div>
             </div>
           </template>
         </div>
@@ -373,7 +403,7 @@ import {
   Calendar, Promotion, CircleCheckFilled, Clock, WarningFilled,
   Close, Link, Location, Bell, Loading, Document, EditPen, Delete
 } from '@element-plus/icons-vue'
-import { batchCreateCityDistributions, createCityDistribution, deleteCityDistribution, getAccounts, getCities, getCityBoard, getCityDistributions, getTaskProgress, updateCityDistribution } from '@/api'
+import { batchCreateCityDistributions, createCityDistribution, deleteCityDistribution, getAccounts, getCities, getCityBoard, getCityDistributions, getCityTaskDetail, updateCityDistribution } from '@/api'
 import { applySystemSettings, loadSystemSettings } from '@/utils/systemSettings'
 import ConfigurablePageRenderer from '@/layout-builder/ConfigurablePageRenderer.vue'
 import { layoutModuleCatalog } from '@/layout-builder/moduleCatalog'
@@ -421,12 +451,15 @@ const submitting = ref(false)
 const distributeMode = ref('single')
 const editingDistribution = ref(null)
 const activeCity = ref(null)
-const taskDetail = ref({ month: dayjs().format('YYYY-MM'), progress: {}, totals: {}, accounts: [] })
+const taskDetail = ref({ month: dayjs().format('YYYY-MM'), summary: {}, tasks: [] })
 const cities = ref([])
 const distributions = ref([])
 const cityAccounts = ref([])
 const batchPasteText = ref('')
 const batchRows = ref([])
+const batchUnifyTime = ref('20:00')
+const batchDuplicateCheck = ref(true)
+let batchRowSeed = 0
 
 const colorSet = ['#6366f1', '#f97316', '#10b981', '#ec4899', '#8b5cf6', '#f59e0b', '#0ea5e9', '#84cc16', '#ef4444', '#14b8a6']
 
@@ -503,11 +536,21 @@ const selectedCityAccounts = computed(() => {
   return cityAccounts.value.filter(account => account.city_id === city.id)
 })
 const batchSubmitRows = computed(() => batchRows.value.filter(row => row.enabled && row.video_url))
+const normalizeUrl = (value = '') => String(value).trim().replace(/[，,。.;；]+$/g, '')
+const duplicateBatchUrls = computed(() => {
+  const counts = new Map()
+  batchSubmitRows.value.forEach(row => {
+    const url = normalizeUrl(row.video_url)
+    if (!url) return
+    counts.set(url, (counts.get(url) || 0) + 1)
+  })
+  return [...counts.entries()].filter(([, count]) => count > 1).map(([url]) => url)
+})
 const canSubmitDistribute = computed(() => {
   if (editingDistribution.value || distributeMode.value === 'single') {
     return distForm.city_id && distForm.account_id
   }
-  return distForm.city_id && batchSubmitRows.value.length > 0
+  return distForm.city_id && batchSubmitRows.value.length > 0 && (!batchDuplicateCheck.value || duplicateBatchUrls.value.length === 0)
 })
 
 const cityStatusClass = (c) => {
@@ -538,6 +581,8 @@ const distPillClass = (s) => ({
 }[s] || '')
 
 const formatDay = (d) => dayjs(d).format('MM/DD')
+const formatDownloadTime = (value) => dayjs(value).format('MM-DD HH:mm')
+const formatActualPublishTime = (value) => value ? dayjs(value).format('YYYY-MM-DD HH:mm') : '-'
 const platformLabel = (p) => ({ douyin: '抖音', kuaishou: '快手', weixin: '视频号', xiaohongshu: '小红书', other: '其他' }[p] || (p || '-'))
 const accountOptionLabel = (account) => {
   const platform = account.platform_label || account.platform || '账号'
@@ -556,16 +601,37 @@ const copyText = async (text) => {
   }
 }
 const normalizeText = (value = '') => String(value).toLowerCase().replace(/\s+/g, '').replace(/[（）()【】\[\]·,，.。_-]/g, '')
-const extractUrl = (line = '') => line.match(/https?:\/\/\S+/i)?.[0] || ''
+const extractUrl = (line = '') => normalizeUrl(line.match(/https?:\/\/\S+/i)?.[0] || '')
+const extractTime = (line = '') => {
+  const match = String(line).match(/(?:^|[\s,，;；])([01]?\d|2[0-3])[:：]([0-5]\d)(?=$|[\s,，;；])/)
+  if (!match) return ''
+  return `${String(match[1]).padStart(2, '0')}:${match[2]}`
+}
+const makeBatchRow = (account, overrides = {}) => ({
+  local_id: `batch_row_${Date.now()}_${batchRowSeed++}`,
+  enabled: true,
+  account_id: account.id,
+  account_name: account.name,
+  platform: account.platform_label || account.platform || '',
+  time: account.default_publish_time || distForm.time || loadSystemSettings().preferences.defaultPublishTime || '09:00',
+  video_url: '',
+  ...overrides
+})
+const isDuplicateBatchUrl = (url) => !!url && duplicateBatchUrls.value.includes(normalizeUrl(url))
+const findAccountFromLine = (line = '') => {
+  const normalizedLine = normalizeText(line)
+  return selectedCityAccounts.value
+    .map(account => ({ account, key: normalizeText(account.name) }))
+    .filter(item => item.key && normalizedLine.includes(item.key))
+    .sort((a, b) => b.key.length - a.key.length)[0]?.account || null
+}
+const removeBatchRow = (row) => {
+  batchRows.value = batchRows.value.filter(item => item.local_id !== row.local_id)
+}
 const buildBatchRows = () => {
   const defaultTime = distForm.time || loadSystemSettings().preferences.defaultPublishTime || '09:00'
-  batchRows.value = selectedCityAccounts.value.map(account => ({
-    enabled: true,
-    account_id: account.id,
-    account_name: account.name,
-    platform: account.platform_label || account.platform || '',
-    time: account.default_publish_time || defaultTime,
-    video_url: ''
+  batchRows.value = selectedCityAccounts.value.map(account => makeBatchRow(account, {
+    time: account.default_publish_time || defaultTime
   }))
 }
 
@@ -649,6 +715,8 @@ const resetDistForm = () => {
   distForm.requirement = ''
   batchPasteText.value = ''
   batchRows.value = []
+  batchUnifyTime.value = preferences.defaultPublishTime || '20:00'
+  batchDuplicateCheck.value = true
 }
 const pickDefaultAccount = () => {
   const accounts = selectedCityAccounts.value
@@ -670,24 +738,61 @@ const fillEmptyTimes = () => {
     else row.time = distForm.time || row.time
   })
 }
+const applyUnifyTime = () => {
+  if (!batchUnifyTime.value) {
+    return ElMessage.warning('请先选择统一时间')
+  }
+  const targetTime = batchUnifyTime.value
+  batchRows.value.forEach(row => {
+    row.time = targetTime
+  })
+  distForm.time = targetTime
+  ElMessage.success(`已将所有账号发布时间统一设置为 ${targetTime}`)
+}
 const applyBatchPaste = () => {
   const lines = batchPasteText.value.split(/\n+/).map(line => line.trim()).filter(Boolean)
   if (!lines.length) return ElMessage.warning('请先粘贴账号和链接')
-  let matched = 0
-  const used = new Set()
-  for (const row of batchRows.value) {
-    const key = normalizeText(row.account_name)
-    const matchIndex = lines.findIndex((item, idx) => !used.has(idx) && normalizeText(item).includes(key) && extractUrl(item))
-    const line = matchIndex >= 0 ? lines[matchIndex] : ''
-    if (line) {
-      row.video_url = extractUrl(line)
-      row.enabled = true
-      used.add(matchIndex)
-      matched++
+  const parsedRows = []
+  const unmatched = []
+  lines.forEach((line, index) => {
+    const url = extractUrl(line)
+    const account = findAccountFromLine(line)
+    if (!url || !account) {
+      unmatched.push(index + 1)
+      return
     }
+    parsedRows.push(makeBatchRow(account, {
+      time: extractTime(line) || batchUnifyTime.value || distForm.time || account.default_publish_time || '09:00',
+      video_url: url,
+      enabled: true
+    }))
+  })
+
+  if (!parsedRows.length) {
+    return ElMessage.warning('未匹配到账号和链接，请检查粘贴格式')
   }
-  const unmatched = lines.length - matched
-  ElMessage[matched ? 'success' : 'warning'](`已匹配 ${matched} 条${unmatched > 0 ? `，${unmatched} 条未匹配` : ''}`)
+
+  const usedAccountIds = new Set(parsedRows.map(row => row.account_id))
+  const emptyRows = selectedCityAccounts.value
+    .filter(account => !usedAccountIds.has(account.id))
+    .map(account => makeBatchRow(account, {
+      time: account.default_publish_time || batchUnifyTime.value || distForm.time || '09:00',
+      enabled: false
+    }))
+  batchRows.value = [...parsedRows, ...emptyRows]
+  ElMessage[unmatched.length ? 'warning' : 'success'](`已生成 ${parsedRows.length} 条任务${unmatched.length ? `，第 ${unmatched.join('、')} 行未匹配` : ''}`)
+}
+
+const generateDualTimeRows = () => {
+  if (!selectedCityAccounts.value.length) {
+    return ElMessage.warning('该城市暂无可下发账号')
+  }
+  const times = ['16:00', '20:00']
+  batchRows.value = selectedCityAccounts.value.flatMap(account => times.map(time => makeBatchRow(account, {
+    time,
+    enabled: true
+  })))
+  ElMessage.success(`已为 ${selectedCityAccounts.value.length} 个账号生成 ${batchRows.value.length} 条双时段任务`)
 }
 
 const submitDist = async () => {
@@ -704,8 +809,8 @@ const submitDist = async () => {
         city_id: distForm.city_id,
         account_id: row.account_id,
         video_title: `${city?.name || '城市'} · ${row.account_name}`,
-        video_url: row.video_url,
-        material_url: row.video_url,
+        video_url: normalizeUrl(row.video_url),
+        material_url: normalizeUrl(row.video_url),
         time: row.time || distForm.time || '09:00',
         publish_time: row.time || distForm.time || '09:00',
         publish_requirement: distForm.requirement || '',
@@ -721,7 +826,19 @@ const submitDist = async () => {
     closeDialog()
     loadDistributions()
     loadBoard()
-  } catch {
+  } catch (err) {
+    const duplicates = err?.response?.data?.data?.duplicates || []
+    if (duplicates.length) {
+      batchDuplicateCheck.value = true
+      ElMessage.error(`发现 ${duplicates.length} 个重复链接，请修改高亮项后再下发`)
+      submitting.value = false
+      return
+    }
+    if (distributeMode.value === 'batch') {
+      ElMessage.error(err?.response?.data?.message || err?.message || '批量下发失败')
+      submitting.value = false
+      return
+    }
     if (editingDistribution.value) {
       const city = cities.value.find(c => c.id === distForm.city_id)
       const account = selectedCityAccounts.value.find(a => a.id === distForm.account_id)
@@ -791,23 +908,19 @@ const removeDistribution = async (d) => {
   loadBoard()
 }
 
-const openCityDetail = (c) => { ElMessage.info('查看 ' + c.name + ' 详情') }
+const openCityDetail = (c) => openTaskDetail(c)
 const nudge = (c) => { ElMessage.success('已向「' + c.name + '」发送催办通知') }
 const openTaskDetail = async (c) => {
   activeCity.value = c
   showTaskDetail.value = true
-  taskDetail.value = { month: dayjs(currentDate.value).format('YYYY-MM'), progress: {}, totals: {}, accounts: [] }
+  taskDetail.value = { month: dayjs(currentDate.value).format('YYYY-MM'), summary: {}, tasks: [] }
   try {
-    taskDetail.value = await getTaskProgress({
-      month: dayjs(currentDate.value).format('YYYY-MM'),
-      cityId: c.id
-    })
+    taskDetail.value = await getCityTaskDetail(c.id, { month: dayjs(currentDate.value).format('YYYY-MM') })
   } catch {
     taskDetail.value = {
       month: dayjs(currentDate.value).format('YYYY-MM'),
-      progress: { completed: c.published_count || 0, target: totalCount(c), percentage: progressOf(c, 'published') },
-      totals: { pending: c.pending_count || 0, overdue: c.overdue_count || 0, reportedVideos: c.published_count || 0 },
-      accounts: c.accounts || []
+      summary: { monthAssigned: totalCount(c), monthPublished: c.published_count || 0, overdue: c.overdue_count || 0, publishRate: progressOf(c, 'published') },
+      tasks: []
     }
   }
 }
@@ -1028,51 +1141,41 @@ watch(layoutBindings, (value) => applyLayoutBindings(value), { deep: true, immed
 
 /* ===== TASK DETAIL ===== */
 .dialog-card.detail-card { 
-  width: min(720px, calc(100vw - 40px)) !important; 
-  max-width: min(720px, calc(100vw - 40px)) !important;
+  width: min(1120px, calc(100vw - 40px)) !important; 
+  max-width: min(1120px, calc(100vw - 40px)) !important;
   max-height: 85vh; 
   overflow-y: auto; 
 }
 .detail-card::-webkit-scrollbar { width: 6px; }
 .detail-card::-webkit-scrollbar-thumb { background: #e5e7eb; border-radius: 99px; }
 .detail-body { display: flex; flex-direction: column; gap: 16px; }
-.detail-summary {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-.detail-summary-row {
+.detail-kpis {
   display: grid;
-  grid-template-columns: 1fr;
+  grid-template-columns: repeat(4, 1fr);
   gap: 12px;
 }
-.detail-summary-row.second {
-  grid-template-columns: repeat(3, 1fr);
-}
-.detail-main, .detail-stat {
+.detail-kpis > div {
   border: 1px solid #eef0f6;
   border-radius: 14px;
   background: #fafbff;
-  padding: 16px 18px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
-.detail-main span, .detail-stat span { display: block; color: #64748b; font-size: 12px; font-weight: 600; }
-.detail-main strong {
-  display: block;
-  margin: 8px 0;
+.detail-kpis strong {
   color: #4f46e5;
-  font-size: 36px;
+  font-size: 26px;
   line-height: 1;
   font-weight: 800;
 }
-.detail-main em { display: block; margin-top: 8px; color: #64748b; font-size: 12px; font-style: normal; }
-.detail-bar { height: 8px; border-radius: 999px; overflow: hidden; background: #e5e7eb; margin-top: 6px; }
-.detail-bar i { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #6366f1, #8b5cf6); }
-.detail-stat { display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; }
-.detail-stat strong { color: #4f46e5; font-size: 28px; line-height: 1; margin-bottom: 6px; }
-.detail-stat.warn strong { color: #f97316; }
-.detail-stat.green strong { color: #10b981; }
-.detail-table-wrap { border: 1px solid #e5e7eb; border-radius: 14px; overflow: hidden; background: #fff; }
-.detail-table { width: 100%; border-collapse: collapse; font-size: 13px; table-layout: fixed; }
+.detail-kpis span { color: #64748b; font-size: 12px; font-weight: 600; }
+.detail-kpis .green strong { color: #059669; }
+.detail-kpis .blue strong { color: #2563eb; }
+.detail-kpis .warn strong { color: #d97706; }
+.detail-kpis .danger strong { color: #dc2626; }
+.detail-table-wrap { border: 1px solid #e5e7eb; border-radius: 14px; overflow: auto; background: #fff; max-height: 430px; }
+.detail-table { width: 100%; min-width: 930px; border-collapse: collapse; font-size: 13px; }
 .detail-table th {
   text-align: left;
   padding: 13px 14px;
@@ -1083,29 +1186,22 @@ watch(layoutBindings, (value) => applyLayoutBindings(value), { deep: true, immed
   border-bottom: 1px solid #e5e7eb;
   white-space: nowrap;
 }
-.detail-table th:first-child { width: 180px; }
-.detail-table th:nth-child(2) { width: 80px; }
-.detail-table th:nth-child(3) { width: 60px; }
-.detail-table th:nth-child(4) { width: 70px; }
-.detail-table th:nth-child(5) { width: 70px; }
-.detail-table th:nth-child(6) { width: 60px; }
-.detail-table th:last-child { width: 120px; }
+.detail-table th:first-child { width: 110px; }
+.detail-table th:nth-child(2) { min-width: 150px; }
+.detail-table th:nth-child(3) { width: 90px; }
+.detail-table th:nth-child(4) { min-width: 220px; }
+.detail-table th:nth-child(5) { width: 130px; }
+.detail-table th:nth-child(6) { width: 100px; }
+.detail-table th:last-child { width: 110px; }
 .detail-table td { padding: 13px 14px; border-bottom: 1px solid #f1f5f9; color: #0f172a; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .detail-table tr:last-child td { border-bottom: 0; }
 .detail-table tr:hover td { background: #fafbff; }
-.detail-table td:first-child {
-  white-space: normal;
-  overflow: visible;
-  text-overflow: unset;
-}
-.detail-table td:first-child strong { display: block; font-size: 13px; font-weight: 600; color: #1e293b; margin-bottom: 3px; }
-.detail-table td:first-child span { color: #94a3b8; font-size: 11px; }
-.detail-table td:nth-child(3), .detail-table td:nth-child(4), .detail-table td:nth-child(5), .detail-table td:nth-child(6) { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
-.detail-table .green { color: #059669; }
-.detail-table .amber { color: #d97706; }
-.detail-table .pink { color: #dc2626; }
-.mini-progress { height: 7px; border-radius: 999px; background: #eef2ff; overflow: hidden; }
-.mini-progress i { display: block; height: 100%; background: linear-gradient(90deg, #6366f1, #8b5cf6); border-radius: inherit; }
+.detail-table td strong { color: #1e293b; font-weight: 600; }
+.detail-table td small { display: block; color: #94a3b8; font-size: 10px; margin-top: 4px; }
+.detail-pill { display: inline-flex; padding: 4px 8px; border-radius: 7px; background: #f1f5f9; color: #64748b; font-size: 11px; font-weight: 700; }
+.detail-pill.downloaded, .detail-pill.published, .detail-pill.confirmed { background: #dcfce7; color: #15803d; }
+.detail-pill.not-downloaded, .detail-pill.pending, .detail-pill.distributed { background: #fef3c7; color: #b45309; }
+.detail-pill.overdue, .detail-pill.failed { background: #fee2e2; color: #b91c1c; }
 .empty-inline { padding: 24px; text-align: center; color: #94a3b8; }
 
 /* ===== DISTRIBUTION TIMELINE ===== */
@@ -1269,6 +1365,50 @@ watch(layoutBindings, (value) => applyLayoutBindings(value), { deep: true, immed
   align-items: end;
 }
 .batch-actions { display: flex; flex-direction: column; gap: 8px; padding-bottom: 1px; }
+.duplicate-switch {
+  height: 36px;
+  padding: 0 10px;
+  border-radius: 10px;
+  background: #fff7ed;
+  color: #9a3412;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12.5px;
+  font-weight: 700;
+  cursor: pointer;
+  user-select: none;
+}
+.duplicate-switch input { accent-color: #f97316; }
+.time-apply-group { display: flex; gap: 6px; align-items: center; }
+.unify-time-picker {
+  width: 120px;
+}
+:deep(.unify-time-picker .el-input__wrapper) {
+  box-shadow: 0 0 0 1px #e5e7eb inset;
+  border-radius: 10px;
+  padding: 0 12px;
+  height: 40px;
+  background: #fff;
+}
+:deep(.unify-time-picker .el-input__wrapper:hover) {
+  box-shadow: 0 0 0 1px #6366f1 inset;
+}
+:deep(.unify-time-picker .el-input__inner) {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: #4f46e5;
+  text-align: center;
+}
+.btn-ghost.primary-outline {
+  border-color: #6366f1;
+  color: #6366f1;
+  background: #f5f3ff;
+}
+.btn-ghost.primary-outline:hover {
+  background: #6366f1;
+  color: #fff;
+}
 .batch-table-wrap {
   border: 1px solid #e5e7eb;
   border-radius: 14px;
@@ -1290,8 +1430,34 @@ watch(layoutBindings, (value) => applyLayoutBindings(value), { deep: true, immed
 }
 .batch-table td { padding: 11px 14px; border-bottom: 1px solid #f1f5f9; vertical-align: middle; }
 .batch-table tr.filled td { background: #f0fdf4; }
+.batch-table tr.duplicate td { background: #fff1f2; }
+.batch-table tr.duplicate .mini-input.link { border-color: #fb7185; box-shadow: 0 0 0 3px rgba(244,63,94,.12); }
 .batch-table td strong { display: block; color: #0f172a; font-size: 13px; margin-bottom: 3px; }
 .batch-table td span { color: #94a3b8; font-size: 11px; }
+.duplicate-tag,
+.ok-tag,
+.muted-tag {
+  display: inline-flex;
+  align-items: center;
+  height: 24px;
+  padding: 0 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+}
+.duplicate-tag { color: #e11d48 !important; background: #ffe4e6; }
+.ok-tag { color: #059669 !important; background: #dcfce7; }
+.muted-tag { color: #94a3b8 !important; background: #f1f5f9; }
+.row-link {
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  color: #6366f1;
+  font-size: 12px;
+  font-weight: 700;
+  font-family: inherit;
+}
+.row-link.danger { color: #ef4444; }
 .mini-input {
   width: 100%;
   height: 36px;
@@ -1313,6 +1479,10 @@ watch(layoutBindings, (value) => applyLayoutBindings(value), { deep: true, immed
   color: #4f46e5;
   font-size: 12.5px;
   font-weight: 600;
+}
+.batch-tip.danger {
+  background: #fff1f2;
+  color: #e11d48;
 }
 
 :deep(.inline-select .el-input__wrapper) {
@@ -1340,5 +1510,6 @@ watch(layoutBindings, (value) => applyLayoutBindings(value), { deep: true, immed
   .dialog-card.large { width: calc(100vw - 32px); }
   .form-row.two { grid-template-columns: 1fr; }
   .city-grid { grid-template-columns: 1fr; }
+  .detail-kpis { grid-template-columns: repeat(2, 1fr); }
 }
 </style>

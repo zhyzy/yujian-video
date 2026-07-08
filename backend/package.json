@@ -6,7 +6,7 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node server.js",
-    "test": "node --test test/accounts.test.js test/ai.test.js test/auth.test.js test/materials.test.js test/schedules.test.js test/data-dashboard.test.js"
+    "test": "node --test test/accounts.test.js test/ai.test.js test/auth.test.js test/materials.test.js test/schedules.test.js test/data-dashboard.test.js test/download-tracking.test.js test/workflow-e2e.test.js"
   },
   "keywords": [
     "media",
