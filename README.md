@@ -4,7 +4,7 @@
 
 面向总部运营与城市账号协作的一站式自媒体运营管理后台。
 
-![Version](https://img.shields.io/badge/version-v1.0.0-4f46e5?style=for-the-badge)
+![Version](https://img.shields.io/badge/version-v1.1.0-4f46e5?style=for-the-badge)
 ![Vue](https://img.shields.io/badge/Vue-3-42b883?style=for-the-badge&logo=vuedotjs)
 ![Node](https://img.shields.io/badge/Node.js-20-339933?style=for-the-badge&logo=nodedotjs)
 ![License](https://img.shields.io/badge/license-Proprietary-111827?style=for-the-badge)
@@ -186,15 +186,6 @@ npm run build
 
 然后把 `frontend/dist/` 目录整体覆盖到线上前端静态目录。覆盖前端构建产物不会清空数据库数据。
 
-### 1Panel
-
-项目提供 `deploy.sh` 作为部署参考：
-
-```bash
-./deploy.sh all
-```
-
-部署前请根据服务器实际情况修改脚本中的服务器地址、部署目录和运行参数。
 
 ## 上线检查
 
@@ -211,7 +202,7 @@ npm run build
 
 ## 版本
 
-当前版本：`v1.0.0`
+当前版本：`v1.1.0`
 
 版本记录：
 
