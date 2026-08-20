@@ -1,50 +1,46 @@
 <template>
   <div class="settings-page">
-    <header class="page-head">
-      <div>
-        <div class="eyebrow"><IconFont name="settings" :fallback="Setting" /> 系统配置中心</div>
-        <h1>系统设置</h1>
-        <p>统一维护页面字段、品牌展示、账户资料和常用偏好</p>
+    <section class="settings-context">
+      <div class="context-left">
+        <span class="context-dot"></span>
+        <span class="context-chip brand-chip">
+          <img v-if="settings.brand.logoUrl" :src="settings.brand.logoUrl" alt="系统 Logo">
+          <b>{{ settings.brand.name || '遇见自媒体运营' }}</b>
+        </span>
+        <span class="context-separator">/</span>
+        <span class="context-chip">
+          <span class="context-avatar">{{ profileInitial }}</span>
+          <b>{{ displayNamePreview || '系统管理员' }}</b>
+          <em>{{ roleLabelPreview }}</em>
+        </span>
+        <span class="context-separator">/</span>
+        <span class="context-chip current">
+          <IconFont name="settings" :fallback="Setting" />
+          <b>系统设置</b>
+        </span>
       </div>
-      <div class="head-actions">
-        <el-button @click="resetAll">
-          <IconFont name="reset" :fallback="RefreshLeft" />
-          恢复默认
-        </el-button>
-        <el-button type="primary" @click="saveAll">
-          <IconFont name="save" :fallback="Check" />
-          保存设置
-        </el-button>
-      </div>
-    </header>
-
-    <section class="preview-band">
-      <div class="brand-preview">
-        <img v-if="settings.brand.logoUrl" :src="settings.brand.logoUrl" alt="系统 Logo" class="preview-logo">
-        <div v-else class="preview-logo text-logo">{{ settings.brand.name.slice(0, 1) || '遇' }}</div>
-        <div>
-          <strong>{{ settings.brand.name || '遇见运营中台' }}</strong>
-          <span>{{ settings.brand.subtitle || 'Media Operations' }}</span>
-        </div>
-      </div>
-      <div class="profile-preview">
-        <img v-if="settings.profile.avatarUrl" :src="settings.profile.avatarUrl" alt="账户头像" class="preview-avatar">
-        <div v-else class="preview-avatar text-avatar">{{ profileInitial }}</div>
-        <div>
-          <strong>{{ displayNamePreview }}</strong>
-          <span>{{ roleLabelPreview }}</span>
-        </div>
-      </div>
+      <div class="context-hint">统一维护字段、品牌、账户资料和全局偏好</div>
     </section>
 
     <el-tabs v-model="activeTab" class="settings-tabs">
       <el-tab-pane label="存储桶" name="storage">
-        <section class="panel-grid">
-          <div class="panel">
+        <section class="storage-provider-card">
+          <div>
+            <strong>对象存储服务</strong>
+            <span>{{ activeStorageMeta.description }}</span>
+          </div>
+          <el-radio-group v-model="activeStorageProvider">
+            <el-radio-button label="cos">腾讯 COS</el-radio-button>
+            <el-radio-button label="upyun">又拍云</el-radio-button>
+          </el-radio-group>
+        </section>
+
+        <section v-if="activeStorageProvider === 'cos'" class="panel-grid">
+          <div class="panel provider-panel">
             <div class="panel-head">
               <IconFont name="uploadFolder" :fallback="FolderOpened" />
               <div>
-                <h2>COS 存储桶</h2>
+                <h2>腾讯云 COS</h2>
                 <p>用于素材上传、预览签名和文件删除</p>
               </div>
             </div>
@@ -74,7 +70,47 @@
               <label><span>预览有效期（秒）</span><el-input-number v-model="settings.storage.previewExpires" :min="60" :max="86400" style="width: 100%" /></label>
               <el-button :loading="testingStorage" @click="testStorage">
                 <IconFont name="link" :fallback="Link" />
-                测试连接
+                测试 COS
+              </el-button>
+            </div>
+          </div>
+        </section>
+
+        <section v-else class="panel-grid">
+          <div class="panel provider-panel">
+            <div class="panel-head">
+              <IconFont name="uploadFolder" :fallback="FolderOpened" />
+              <div>
+                <h2>又拍云存储</h2>
+                <p>用于素材直传、目录归档和云端文件删除</p>
+              </div>
+            </div>
+            <div class="form-stack">
+              <label><span>服务名</span><el-input v-model="settings.rawStorage.service" placeholder="又拍云服务名 / Bucket" /></label>
+              <label><span>操作员</span><el-input v-model="settings.rawStorage.operator" placeholder="拥有上传和删除权限的操作员" /></label>
+              <label>
+                <span>操作员密码</span>
+                <el-input v-model="settings.rawStorage.password" type="password" show-password :placeholder="settings.rawStorage.hasPassword ? '已配置，留空则不修改' : '请输入操作员密码'" />
+              </label>
+              <label><span>表单上传 API</span><el-input v-model="settings.rawStorage.formApiHost" placeholder="https://v0.api.upyun.com" /></label>
+            </div>
+          </div>
+
+          <div class="panel provider-panel">
+            <div class="panel-head">
+              <IconFont name="settings" :fallback="Setting" />
+              <div>
+                <h2>访问与目录</h2>
+                <p>设置加速域名、上传目录和预览有效期</p>
+              </div>
+            </div>
+            <div class="form-stack">
+              <label><span>加速域名</span><el-input v-model="settings.rawStorage.domain" placeholder="cdn.example.com，不需要填写 https://" clearable /></label>
+              <label><span>上传目录</span><el-input v-model="settings.rawStorage.uploadPrefix" placeholder="raw-materials/" /></label>
+              <label><span>预览有效期（秒）</span><el-input-number v-model="settings.rawStorage.previewExpires" :min="60" :max="86400" style="width: 100%" /></label>
+              <el-button type="primary" plain :loading="testingStorage" @click="testStorage">
+                <IconFont name="link" :fallback="Link" />
+                测试又拍云
               </el-button>
             </div>
           </div>
@@ -441,6 +477,19 @@
         </section>
       </el-tab-pane>
     </el-tabs>
+
+    <div class="floating-actions settings-floating-actions">
+      <div class="floating-action-row">
+        <button class="float-secondary" type="button" @click="resetAll">
+          <IconFont name="reset" :fallback="RefreshLeft" />
+          <span>恢复</span>
+        </button>
+        <button class="float-main" type="button" @click="saveAll">
+          <IconFont name="save" :fallback="Check" />
+          <span>保存</span>
+        </button>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -498,6 +547,21 @@ if (!settings.storage) {
     hasSecretKey: false
   }
 }
+if (!settings.rawStorage) {
+  settings.rawStorage = {
+    provider: 'upyun',
+    service: '',
+    operator: '',
+    password: '',
+    domain: '',
+    uploadPrefix: 'raw-materials/',
+    formApiHost: 'https://v0.api.upyun.com',
+    previewExpires: 600,
+    hasPassword: false
+  }
+}
+if (!settings.storage.provider) settings.storage.provider = 'cos'
+if (!settings.rawStorage.provider) settings.rawStorage.provider = 'upyun'
 if (!settings.copy) settings.copy = {}
 if (!settings.appearance) {
   settings.appearance = {
@@ -545,6 +609,22 @@ const authUser = computed(() => {
 const displayNamePreview = computed(() => settings.profile.displayName || authUser.value.name || authUser.value.username || '用户')
 const roleLabelPreview = computed(() => settings.profile.roleLabel || (authUser.value.role === 'admin' ? '超级管理员' : authUser.value.role === 'viewer' ? '只读账号' : '运营账号'))
 const profileInitial = computed(() => (displayNamePreview.value || '用').slice(0, 1).toUpperCase())
+const activeStorageProvider = computed({
+  get: () => settings.storage.provider || 'cos',
+  set: (value) => {
+    settings.storage.provider = value
+    settings.rawStorage.provider = 'upyun'
+  }
+})
+const activeStorageMeta = computed(() => activeStorageProvider.value === 'upyun'
+  ? {
+      label: '又拍云',
+      description: '适合素材直传和 CDN 分发；填写服务名、操作员、密码和加速域名后即可测试。'
+    }
+  : {
+      label: '腾讯 COS',
+      description: '当前系统默认存储；填写 Bucket、Region、SecretId 和 SecretKey 后即可测试。'
+    })
 const pageEntries = computed(() => Object.entries(settings.pages).map(([key, value]) => ({ key, value })))
 const currentPage = computed(() => settings.pages[activePage.value])
 
@@ -666,8 +746,11 @@ const resetAll = async () => {
 const testStorage = async () => {
   testingStorage.value = true
   try {
-    await testStorageSettings(settings.storage)
-    ElMessage.success('存储桶连接成功')
+    const payload = activeStorageProvider.value === 'upyun'
+      ? { provider: 'upyun', rawStorage: settings.rawStorage }
+      : { ...settings.storage, provider: 'cos' }
+    await testStorageSettings(payload)
+    ElMessage.success(`${activeStorageMeta.value.label}连接成功`)
   } finally {
     testingStorage.value = false
   }
@@ -694,82 +777,202 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-.settings-page { display: flex; flex-direction: column; gap: 16px; }
-.page-head {
+.settings-page {
   display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 18px;
-  padding: 22px 24px;
-  background: #fff;
-  border: 1px solid #eceff5;
-  border-radius: 16px;
-}
-.eyebrow { display: inline-flex; align-items: center; gap: 8px; color: #6366f1; font-size: 12px; font-weight: 700; margin-bottom: 8px; }
-.page-head h1 { margin: 0 0 6px; font-size: 24px; color: #0f172a; letter-spacing: 0; }
-.page-head p { margin: 0; color: #7b8497; font-size: 13px; }
-.head-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.head-actions .el-button { display: inline-flex; align-items: center; gap: 6px; }
-
-.preview-band {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
+  flex-direction: column;
   gap: 14px;
+  padding-bottom: 86px;
 }
-.brand-preview,
-.profile-preview {
-  min-height: 86px;
+
+.settings-context {
   display: flex;
   align-items: center;
-  gap: 14px;
-  padding: 18px 20px;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 54px;
+  padding: 10px 14px;
+  background: #fff;
+  border: 1px solid #eceff5;
+  border-radius: 12px;
+}
+
+.context-left {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.context-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: #6366f1;
+  box-shadow: 0 0 0 5px #eef2ff;
+  flex-shrink: 0;
+}
+.context-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  height: 32px;
+  padding: 0 10px;
+  border-radius: 9px;
+  color: #475569;
+  background: #f8fafc;
+  font-size: 13px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+.context-chip img,
+.context-avatar {
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+.context-avatar {
+  display: grid;
+  place-items: center;
+  color: #fff;
+  font-size: 12px;
+  background: linear-gradient(135deg, #6366f1, #14b8a6);
+}
+.context-chip em {
+  max-width: 88px;
+  overflow: hidden;
+  color: #94a3b8;
+  font-style: normal;
+  font-weight: 700;
+  text-overflow: ellipsis;
+}
+.context-chip.current {
+  color: #2563eb;
+  background: #eff6ff;
+}
+.context-chip.current .app-icon {
+  width: 17px;
+  height: 17px;
+}
+.context-separator {
+  color: #cbd5e1;
+  font-weight: 800;
+}
+.context-hint {
+  flex-shrink: 0;
+  color: #94a3b8;
+  font-size: 12.5px;
+  font-weight: 700;
+}
+
+.settings-tabs {
+  padding: 0;
+  overflow: hidden;
   background: #fff;
   border: 1px solid #eceff5;
   border-radius: 14px;
 }
-.brand-preview strong,
-.profile-preview strong { display: block; color: #0f172a; font-size: 15px; margin-bottom: 4px; }
-.brand-preview span,
-.profile-preview span { color: #8a91a4; font-size: 12.5px; }
-.preview-logo,
-.preview-avatar {
-  width: 44px;
-  height: 44px;
-  border-radius: 12px;
-  object-fit: cover;
-  flex-shrink: 0;
-}
-.text-logo,
-.text-avatar {
-  display: grid;
-  place-items: center;
-  color: #fff;
-  font-weight: 800;
-  background: linear-gradient(135deg, #6366f1, #14b8a6);
-}
-.preview-avatar { border-radius: 999px; }
-
-.settings-tabs {
-  padding: 18px 20px 22px;
+.settings-tabs :deep(.el-tabs__header) {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  margin: 0;
+  padding: 12px 14px 0;
   background: #fff;
-  border: 1px solid #eceff5;
-  border-radius: 16px;
+  border-bottom: 1px solid #eef2f7;
 }
+.settings-tabs :deep(.el-tabs__nav-wrap)::after {
+  display: none;
+}
+.settings-tabs :deep(.el-tabs__active-bar) {
+  display: none;
+}
+.settings-tabs :deep(.el-tabs__nav) {
+  gap: 8px;
+}
+.settings-tabs :deep(.el-tabs__item) {
+  height: 38px;
+  padding: 0 15px;
+  border-radius: 9px;
+  color: #475569;
+  font-size: 13.5px;
+  font-weight: 800;
+  letter-spacing: 0;
+}
+.settings-tabs :deep(.el-tabs__item:hover) {
+  color: #2563eb;
+  background: #f8fafc;
+}
+.settings-tabs :deep(.el-tabs__item.is-active) {
+  color: #2563eb;
+  background: #eff6ff;
+  box-shadow: inset 0 0 0 1px #bfdbfe;
+}
+.settings-tabs :deep(.el-tabs__content) {
+  padding: 16px;
+}
+.settings-floating-actions {
+  right: 32px;
+  bottom: 26px;
+}
+
+.storage-provider-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 14px;
+  padding: 13px 14px;
+  border: 1px solid #e5eaf4;
+  border-radius: 12px;
+  background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+}
+.storage-provider-card strong {
+  display: block;
+  margin-bottom: 3px;
+  color: #0f172a;
+  font-size: 15px;
+  font-weight: 900;
+}
+.storage-provider-card span {
+  color: #64748b;
+  font-size: 12.5px;
+  font-weight: 700;
+}
+.storage-provider-card :deep(.el-radio-button__inner) {
+  height: 36px;
+  padding: 0 18px;
+  display: inline-flex;
+  align-items: center;
+  border-color: #dbe3ef;
+  font-weight: 800;
+}
+.storage-provider-card :deep(.el-radio-button__original-radio:checked + .el-radio-button__inner) {
+  border-color: #2563eb;
+  background: #2563eb;
+  box-shadow: -1px 0 0 0 #2563eb;
+}
+.provider-panel {
+  min-height: 420px;
+}
+
 .panel-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 16px;
+  gap: 14px;
 }
 .copy-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-  gap: 16px;
+  gap: 14px;
 }
 .panel {
   border: 1px solid #eceff5;
-  border-radius: 14px;
+  border-radius: 12px;
   background: #fff;
-  padding: 18px;
+  padding: 16px;
 }
 .panel-head {
   display: flex;
@@ -892,10 +1095,25 @@ onMounted(async () => {
 .switch-list { display: flex; flex-direction: column; gap: 10px; }
 
 @media (max-width: 980px) {
-  .page-head,
-  .preview-band,
+  .settings-context,
   .panel-grid,
   .field-layout { grid-template-columns: 1fr; }
-  .page-head { align-items: stretch; }
+  .settings-context {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .context-hint {
+    flex-shrink: 1;
+  }
+  .settings-tabs :deep(.el-tabs__nav) {
+    gap: 4px;
+  }
+  .settings-tabs :deep(.el-tabs__item) {
+    padding: 0 10px;
+  }
+  .storage-provider-card {
+    align-items: stretch;
+    flex-direction: column;
+  }
 }
 </style>

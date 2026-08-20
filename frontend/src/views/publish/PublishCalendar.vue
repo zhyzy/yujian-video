@@ -217,6 +217,13 @@
 
     </ConfigurablePageRenderer>
 
+    <div v-if="!isCityUser" class="floating-actions">
+      <button class="float-main" @click="$router.push('/publish/list')">
+        <el-icon><Plus /></el-icon>
+        新增排期
+      </button>
+    </div>
+
     <div v-if="cityDetailVisible" class="city-detail-overlay" @click.self="closeCityDetail">
       <div class="city-detail-dialog">
         <div class="city-detail-head">
@@ -613,9 +620,10 @@ watch(layoutBindings, (value) => applyLayoutBindings(value), { deep: true, immed
 .section-head h2 { margin: 4px 0 5px; color: #0f172a; font-size: 20px; }
 .section-head p { margin: 0; color: #64748b; font-size: 12.5px; }
 .section-kicker { color: #6366f1; font-size: 11.5px; font-weight: 800; letter-spacing: .04em; }
-.city-board-tools { display: flex; flex-direction: column; align-items: flex-end; gap: 10px; }
-.city-board-tools :deep(.el-date-editor) { width: 190px; }
-.city-total-summary { display: grid; grid-template-columns: repeat(4, minmax(82px, 1fr)); gap: 10px; }
+.city-board-tools { display: flex; flex-direction: row; align-items: center; justify-content: flex-end; gap: 10px; flex-wrap: wrap; }
+.city-board-tools :deep(.el-date-editor) { width: 148px; }
+.city-board-tools :deep(.el-input__wrapper) { min-height: 34px; }
+.city-total-summary { display: grid; grid-template-columns: repeat(4, minmax(78px, 1fr)); gap: 8px; }
 .city-total-summary > div { padding: 9px 12px; border: 1px solid #e0e7ff; border-radius: 11px; background: rgba(255,255,255,.88); }
 .city-total-summary span { display: block; color: #64748b; font-size: 11px; }
 .city-total-summary strong { display: block; margin-top: 3px; color: #312e81; font-size: 20px; }

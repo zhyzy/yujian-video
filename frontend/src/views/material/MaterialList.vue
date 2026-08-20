@@ -166,6 +166,7 @@
               <div class="card-meta">
                 <span class="meta-size">{{ file.size_human }}</span>
                 <span class="meta-time">{{ formatTime(file.uploaded_at) }}</span>
+                <span class="meta-uploader">上传人：{{ file.uploaded_by || '未知' }}</span>
               </div>
               <div class="card-type" v-if="file.type_name">
                 <span class="type-tag"><IconFont :typeName="file.type_name" /> {{ file.type_name }}</span>
@@ -292,6 +293,7 @@ import {
 import { createMediaPreviewToken, getMaterialFiles, updateMaterialFile, deleteMaterialFile, getVideoTypes } from '@/api'
 import IconFont from '@/components/IconFont.vue'
 import cos from '@/utils/cos'
+import upyun from '@/utils/upyun'
 import ConfigurablePageRenderer from '@/layout-builder/ConfigurablePageRenderer.vue'
 import { useLayoutBindings } from '@/layout-builder/layoutBindings'
 import { layoutModuleCatalog } from '@/layout-builder/moduleCatalog'
@@ -343,7 +345,7 @@ const filteredFileList = computed(() => {
   if (filterType.value) {
     list = list.filter(f => f.type_name === filterType.value)
   }
-  list = list.filter(file => matchesPageSearch(file.name, file.type_name, file.url, file.cos_key, file.date, file.uploaded_at))
+  list = list.filter(file => matchesPageSearch(file.name, file.type_name, file.url, file.cos_key, file.date, file.uploaded_at, file.uploaded_by))
   return list
 })
 
@@ -525,6 +527,8 @@ const loadData = async () => {
       video_type_id: f.video_type_id,
       url: f.url,
       key: f.cos_key || f.key,
+      storage_provider: f.storage_provider || f.provider || 'cos',
+      uploaded_by: f.uploaded_by || f.uploader_name || f.uploader_username || '',
       uploaded_at: f.uploaded_at || f.created_at,
       duration: f.duration || null,
       mime: f.mime || '',
@@ -594,7 +598,7 @@ const deleteSelected = async () => {
   for (const id of selectedFiles.value) {
     const file = fileList.value.find(f => f.id === id)
     if (file?.key) {
-      try { await cos.deleteObject(file.key) } catch {}
+      try { await deleteCloudObject(file) } catch {}
     }
     try { await deleteMaterialFile(id) } catch {}
   }
@@ -683,7 +687,7 @@ const removeFile = async (file) => {
   } catch { return }
 
   try {
-    if (file.key) await cos.deleteObject(file.key)
+    if (file.key) await deleteCloudObject(file)
   } catch (e) {
     ElMessage.warning('云端删除失败，但将移除记录')
   }
@@ -966,8 +970,15 @@ onMounted(() => loadData())
   margin-bottom: 6px;
 }
 .card-meta {
-  display: flex; align-items: center; gap: 8px;
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
   font-size: 11.5px; color: #9ca3af; margin-bottom: 6px;
+}
+.meta-uploader {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .type-tag {
   font-size: 12px; padding: 0; border-radius: 0;
@@ -1091,3 +1102,7 @@ onMounted(() => loadData())
   .type-chip { height: 28px; padding: 0 8px; font-size: 11.5px; }
 }
 </style>
+const deleteCloudObject = (file) => {
+  if (!file?.key) return Promise.resolve()
+  return file.storage_provider === 'upyun' ? upyun.deleteObject(file.key) : cos.deleteObject(file.key)
+}

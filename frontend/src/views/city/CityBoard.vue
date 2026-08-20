@@ -63,38 +63,59 @@
             <h3>城市账号分发状态</h3>
             <p>按城市分组 · 点击卡片查看详情</p>
           </div>
-          <div class="tab-row">
-            <button class="tab" :class="{ active: cityFilter === 'all' }" @click="cityFilter = 'all'">全部 <span>{{ summary.total }}</span></button>
-            <button class="tab" :class="{ active: cityFilter === 'ok' }" @click="cityFilter = 'ok'">已发 <span>{{ summary.publishedCities }}</span></button>
-            <button class="tab" :class="{ active: cityFilter === 'pending' }" @click="cityFilter = 'pending'">待确认 <span>{{ summary.pendingCities }}</span></button>
-            <button class="tab" :class="{ active: cityFilter === 'overdue' }" @click="cityFilter = 'overdue'">超期 <span>{{ summary.overdueCities }}</span></button>
+          <div class="panel-tools">
+            <div class="field-inline compact">
+              <IconFont name="calendar" :fallback="Calendar" />
+              <el-date-picker
+                v-model="currentDate" type="date" value-format="YYYY-MM-DD"
+                class="inline-picker" placeholder="选择日期"
+              />
+            </div>
+            <div class="tab-row">
+              <button class="tab" :class="{ active: cityFilter === 'all' }" @click="cityFilter = 'all'">全部 <span>{{ summary.total }}</span></button>
+              <button class="tab" :class="{ active: cityFilter === 'ok' }" @click="cityFilter = 'ok'">已发 <span>{{ summary.publishedCities }}</span></button>
+              <button class="tab" :class="{ active: cityFilter === 'pending' }" @click="cityFilter = 'pending'">待确认 <span>{{ summary.pendingCities }}</span></button>
+              <button class="tab" :class="{ active: cityFilter === 'overdue' }" @click="cityFilter = 'overdue'">超期 <span>{{ summary.overdueCities }}</span></button>
+              <button class="tab" :class="{ active: cityFilter === 'special' }" @click="cityFilter = 'special'">特殊 <span>{{ summary.dailyStatusCities }}</span></button>
+            </div>
           </div>
         </header>
 
         <div v-if="filteredCities.length" class="city-grid">
-          <div v-for="(c, idx) in filteredCities" :key="c.id || c.name" class="city-card" :class="cityStatusClass(c)" @click="openCityDetail(c)">
+          <div v-for="(c, idx) in filteredCities" :key="c.id || c.name" class="city-card" :class="[cityStatusClass(c), dailyStatusClass(c)]" @click="openCityDetail(c)">
             <div class="card-hero">
               <div class="city-avatar" :style="{ background: colorSet[idx % colorSet.length] + '1A', color: colorSet[idx % colorSet.length] }">{{ c.name.slice(0, 2) }}</div>
               <div class="city-main">
                 <h4 class="city-name">{{ c.name }}</h4>
                 <p class="city-account">{{ c.account_name || c.kuaishou_name || '官方账号' }}</p>
               </div>
-              <span class="status-badge" :class="cityStatusClass(c)">{{ cityStatusLabel(c) }}</span>
+              <span class="status-badge" :class="dailyStatusClass(c) || cityStatusClass(c)">{{ dailyStatusLabel(c) || cityStatusLabel(c) }}</span>
+            </div>
+
+            <div v-if="hasDailyStatus(c)" class="daily-status-mask">
+              <strong>{{ dailyStatusLabel(c) }}</strong>
+              <span>{{ c.daily_status_reason || '暂无原因说明' }}</span>
+              <em v-if="c.daily_status_updated_at">更新于 {{ formatStatusTime(c.daily_status_updated_at) }}</em>
             </div>
 
             <div class="card-stats">
               <div class="stat-item">
-                <span class="stat-num success">{{ c.published_count || 0 }}</span>
+                <span class="stat-num success">{{ cardPublishedCount(c) }}</span>
                 <span class="stat-label">已发布</span>
               </div>
               <div class="stat-divider"></div>
               <div class="stat-item">
-                <span class="stat-num amber">{{ c.pending_count || 0 }}</span>
-                <span class="stat-label">待确认</span>
+                <span class="stat-num amber">{{ cardPendingCount(c) }}</span>
+                <span class="stat-label">待处理</span>
               </div>
               <div class="stat-divider"></div>
               <div class="stat-item">
-                <span class="stat-num pink">{{ c.overdue_count || 0 }}</span>
+                <span class="stat-num indigo">{{ cardPublishingCount(c) }}</span>
+                <span class="stat-label">发布中</span>
+              </div>
+              <div class="stat-divider"></div>
+              <div class="stat-item">
+                <span class="stat-num pink">{{ cardOverdueCount(c) }}</span>
                 <span class="stat-label">超期</span>
               </div>
             </div>
@@ -103,15 +124,17 @@
               <div class="progress-track">
                 <span class="progress-bar green" :style="{ width: progressOf(c, 'published') + '%' }"></span>
                 <span class="progress-bar amber" :style="{ width: progressOf(c, 'pending') + '%', left: progressOf(c, 'published') + '%' }"></span>
-                <span class="progress-bar pink" :style="{ width: progressOf(c, 'overdue') + '%', left: (progressOf(c, 'published') + progressOf(c, 'pending')) + '%' }"></span>
+                <span class="progress-bar indigo" :style="{ width: progressOf(c, 'publishing') + '%', left: (progressOf(c, 'published') + progressOf(c, 'pending')) + '%' }"></span>
+                <span class="progress-bar pink" :style="{ width: progressOf(c, 'overdue') + '%', left: (progressOf(c, 'published') + progressOf(c, 'pending') + progressOf(c, 'publishing')) + '%' }"></span>
               </div>
-              <span class="progress-text">{{ totalCount(c) }} 条任务</span>
+              <span class="progress-text">{{ cardTaskCount(c) }} 条任务</span>
             </div>
 
             <div class="card-actions" @click.stop>
-              <button class="mini-btn" @click="openDistribute(c)"><IconFont name="publishPlan" :fallback="Promotion" />下发</button>
-              <button v-if="cityStatusClass(c) !== 'st-ok'" class="mini-btn warn" @click="nudge(c)"><IconFont name="notice" :fallback="Bell" />催办</button>
-              <button class="mini-btn" @click="openTaskDetail(c)"><IconFont name="data" :fallback="Document" />任务明细</button>
+              <button class="mini-btn action-icon-btn" title="下发" aria-label="下发" @click="openDistribute(c)"><IconFont name="publishPlan" :fallback="Promotion" /></button>
+              <button v-if="cityStatusClass(c) !== 'st-ok'" class="mini-btn warn action-icon-btn" title="催办" aria-label="催办" @click="nudge(c)"><IconFont name="notice" :fallback="Bell" /></button>
+              <button class="mini-btn action-icon-btn" title="状态" aria-label="状态" @click="openDailyStatusDialog(c)"><IconFont name="edit" :fallback="EditPen" /></button>
+              <button class="mini-btn action-icon-btn" title="任务明细" aria-label="任务明细" @click="openTaskDetail(c)"><IconFont name="data" :fallback="Document" /></button>
             </div>
           </div>
         </div>
@@ -186,6 +209,12 @@
     </template>
     </ConfigurablePageRenderer>
 
+    <div class="floating-actions">
+      <button class="float-main" @click="openDistribute">
+        <IconFont name="publishPlan" :fallback="Promotion" />下发视频
+      </button>
+    </div>
+
     <!-- ================ DIALOG: TASK DETAIL ================ -->
     <div class="dialog-overlay" v-if="showTaskDetail" @click.self="showTaskDetail = false">
       <div class="dialog-card detail-card">
@@ -243,6 +272,50 @@
       </div>
     </div>
 
+    <!-- ================ DIALOG: DAILY CITY STATUS ================ -->
+    <div class="dialog-overlay" v-if="showDailyStatusDialog" @click.self="closeDailyStatusDialog">
+      <div class="dialog-card status-dialog">
+        <div class="dialog-head">
+          <div>
+            <h3>{{ dailyStatusCity?.name || '城市' }} · 今日发布状态</h3>
+            <p>{{ currentDate }} · 记录当天未下发、未发布或临时休假的原因</p>
+          </div>
+          <button class="icon-close" @click="closeDailyStatusDialog"><IconFont name="close" :fallback="Close" /></button>
+        </div>
+        <div class="dialog-body">
+          <div class="form-field">
+            <label>今日状态</label>
+            <select v-model="dailyStatusForm.status" class="text-input">
+              <option value="normal">正常发布</option>
+              <option value="vacation">休假中</option>
+              <option value="paused">暂停发布</option>
+              <option value="no_publish">今日不发布</option>
+              <option value="other">其他情况</option>
+            </select>
+          </div>
+          <div class="form-field">
+            <label>原因说明 <em v-if="dailyStatusForm.status !== 'normal'">*</em></label>
+            <textarea
+              v-model.trim="dailyStatusForm.reason"
+              class="text-input status-reason-input"
+              :placeholder="dailyStatusForm.status === 'normal' ? '恢复正常后可不填写' : '例如：城市负责人休假、素材未准备、临时暂停、账号异常等'"
+            ></textarea>
+          </div>
+          <div class="status-preview" :class="`daily-${dailyStatusForm.status}`">
+            <strong>{{ dailyStatusOptions[dailyStatusForm.status] || '正常发布' }}</strong>
+            <span>{{ dailyStatusForm.status === 'normal' ? '该城市今日按正常流程下发和发布。' : (dailyStatusForm.reason || '保存前请填写原因，卡片上会展示给双方查看。') }}</span>
+          </div>
+        </div>
+        <div class="dialog-foot">
+          <button class="btn-ghost" @click="closeDailyStatusDialog">取消</button>
+          <button class="btn-primary" :disabled="submittingDailyStatus" @click="saveDailyStatus">
+            <el-icon v-if="submittingDailyStatus"><Loading /></el-icon>
+            保存状态
+          </button>
+        </div>
+      </div>
+    </div>
+
     <!-- ================ DIALOG: DISTRIBUTE ================ -->
     <div class="dialog-overlay" v-if="showDialog" @click.self="closeDialog">
       <div class="dialog-card large">
@@ -263,7 +336,7 @@
           <div class="form-row two">
             <div class="form-field">
               <label><em>*</em>下发日期</label>
-              <el-date-picker v-model="distForm.date" value-format="YYYY-MM-DD" class="inline-select" />
+              <el-date-picker v-model="distForm.date" value-format="YYYY-MM-DD" class="inline-select" @change="pickDefaultMaterialDate" />
             </div>
             <div class="form-field">
               <label><em>*</em>目标城市</label>
@@ -273,7 +346,209 @@
             </div>
           </div>
 
-          <template v-if="distributeMode === 'single' || editingDistribution">
+          <div v-if="!editingDistribution" class="distribute-workbench">
+            <aside class="city-material-browser">
+              <div class="material-browser-head">
+                <div>
+                  <strong>城市素材</strong>
+                  <span>{{ selectedCity?.material_folder_path ? `绑定 ${selectedCity.material_folder_path}` : '该城市未绑定素材主文件夹' }}</span>
+                </div>
+                <div class="material-head-actions">
+                  <div class="material-usage-tabs">
+                    <button :class="{ active: materialUsageFilter === 'all' }" @click="setMaterialUsageFilter('all')">全部 {{ activeDateMaterials.length }}</button>
+                    <button :class="{ active: materialUsageFilter === 'unused' }" @click="setMaterialUsageFilter('unused')">未下发 {{ unusedActiveMaterialCount }}</button>
+                    <button :class="{ active: materialUsageFilter === 'used' }" @click="setMaterialUsageFilter('used')">已下发 {{ usedActiveMaterialCount }}</button>
+                  </div>
+                  <button v-if="distForm.city_id" class="btn-ghost" @click="loadCityMaterials(distForm.city_id)">刷新</button>
+                </div>
+              </div>
+
+              <div v-if="cityMaterialLoading" class="material-empty">正在加载素材...</div>
+              <div v-else-if="!selectedCity?.material_folder_path" class="material-empty">请先在素材录入页给城市绑定主文件夹，例如 /太原。</div>
+              <div v-else class="material-browser-body">
+                <div class="date-list">
+                  <button
+                    v-for="group in materialDateGroups"
+                    :key="group.key"
+                    class="date-item"
+                    :class="{ active: selectedMaterialDate === group.key }"
+                    @click="setSelectedMaterialDate(group.key)"
+                  >
+                    <strong>{{ group.label }}</strong>
+                    <span>{{ group.files.length }} 个视频</span>
+                  </button>
+                  <div v-if="!materialDateGroups.length" class="date-empty">暂无日期素材</div>
+                </div>
+
+                <div class="material-list-pane">
+                  <div class="material-list-toolbar">
+                    <input v-model.trim="materialKeyword" class="mini-input" placeholder="搜索当前日期素材" />
+                    <span>{{ activeDateMaterials.length }} 个</span>
+                  </div>
+                  <div v-if="filteredDateMaterials.length" class="material-list">
+                    <div
+                      v-for="file in filteredDateMaterials"
+                      :key="file.id"
+                      class="material-row"
+                      :style="{ '--material-color': materialColor(file.id) }"
+                      :class="{
+                        active: distributeMode === 'single' ? distForm.material_file_id === file.id : selectedMaterialIds.includes(file.id),
+                        focused: focusedMaterialId === file.id,
+                        assigned: materialUsageCount(file.id) > 0,
+                        used: materialDailyUsageCount(file.id) > 0
+                      }"
+                      role="button"
+                      tabindex="0"
+                      @click="chooseMaterialFromBrowser(file)"
+                      @keydown.enter.prevent="chooseMaterialFromBrowser(file)"
+                    >
+                      <span class="material-check">{{ distributeMode === 'single' ? (distForm.material_file_id === file.id ? '已选' : '选择') : (selectedMaterialIds.includes(file.id) ? '已选' : '选择') }}</span>
+                      <el-icon><VideoCamera /></el-icon>
+                      <span class="material-row-main">
+                        <strong>{{ file.name }}</strong>
+                        <em>
+                          {{ file.size_human || formatBytes(file.size) }} · {{ file.type_name || '未分类' }}
+                          <template v-if="materialDailyUsageCount(file.id)"> · 今日已下发 {{ materialDailyUsageCount(file.id) }} 次</template>
+                          <template v-if="materialUsageCount(file.id)"> · 本次已连 {{ materialUsageCount(file.id) }} 个任务</template>
+                        </em>
+                        <small v-if="materialUsageSummary(file.id)" class="material-usage-note">{{ materialUsageSummary(file.id) }}</small>
+                      </span>
+                      <span class="material-row-actions">
+                        <button title="复制链接" @click.stop="copyMaterialLink(file)"><el-icon><Link /></el-icon></button>
+                        <button title="查看视频" @click.stop="previewMaterialFile(file)"><el-icon><View /></el-icon></button>
+                      </span>
+                    </div>
+                  </div>
+                  <div v-else class="material-empty">当前日期暂无视频素材</div>
+                </div>
+              </div>
+            </aside>
+
+            <section class="distribute-task-pane">
+              <template v-if="distributeMode === 'single'">
+                <div class="form-row two">
+                  <div class="form-field">
+                    <label><em>*</em>城市账号</label>
+                    <el-select v-model="distForm.account_id" placeholder="选择该城市账号" class="inline-select" :disabled="!distForm.city_id || !selectedCityAccounts.length">
+                      <el-option
+                        v-for="a in selectedCityAccounts"
+                        :key="a.id"
+                        :label="accountOptionLabel(a)"
+                        :value="a.id"
+                      />
+                    </el-select>
+                    <span v-if="distForm.city_id && !selectedCityAccounts.length" class="field-tip">该城市暂无账号，请先到城市账号页添加</span>
+                  </div>
+                  <div class="form-field">
+                    <label>发布时间</label>
+                    <el-time-picker v-model="distForm.time" value-format="HH:mm" format="HH:mm" class="inline-select" />
+                  </div>
+                </div>
+
+                <div class="form-field">
+                  <label>网盘链接 / 素材地址</label>
+                  <input v-model="distForm.video_url" class="text-input" placeholder="从左侧选择素材后自动生成，也可手动粘贴" />
+                </div>
+
+                <div class="form-field">
+                  <label>发布要求 / 备注</label>
+                  <textarea v-model="distForm.requirement" class="text-input" style="height: 86px; resize: vertical;" placeholder="发布时间建议、话题标签、特殊要求等"></textarea>
+                </div>
+              </template>
+
+              <template v-else>
+                <div v-if="distForm.city_id && !selectedCityAccounts.length" class="batch-empty">
+                  该城市暂无账号，请先到城市账号页添加账号后再批量下发
+                </div>
+                <div v-else class="batch-panel">
+                  <div class="material-assign-bar" :class="{ empty: !selectedMaterialIds.length }">
+                    <span v-if="selectedMaterialIds.length">已选择 {{ selectedMaterialIds.length }} 个素材，可自动写入右侧账号任务。</span>
+                    <span v-else>从左侧选择今日要发布的视频，再按账号顺序分配。</span>
+                    <div>
+                      <button class="btn-ghost" @click="selectAllActiveMaterials">选择当前日期全部</button>
+                      <button class="btn-ghost" @click="selectUnusedActiveMaterials">选择未下发</button>
+                      <button class="btn-ghost" @click="clearSelectedMaterials">清空</button>
+                      <button class="btn-ghost primary-outline" @click="assignSelectedMaterialsToRows">按账号顺序分配</button>
+                      <button class="btn-ghost primary-outline" @click="applyFirstMaterialToAllRows">应用第一个到全部</button>
+                    </div>
+                  </div>
+                  <div class="focused-material-bar" :class="{ empty: !focusedMaterial }">
+                    <span v-if="focusedMaterial">当前待分配：{{ focusedMaterial.name }}</span>
+                    <span v-else>请先在左侧点击一个素材，再分配到下面具体账号和时间段。</span>
+                  </div>
+                  <div class="batch-quick-tools">
+                    <button class="btn-ghost" @click="generateDualTimeRows">生成 16:00 / 20:00</button>
+                    <label class="duplicate-switch">
+                      <input v-model="batchDuplicateCheck" type="checkbox" />
+                      <span>检测重复链接</span>
+                    </label>
+                    <div class="time-apply-group">
+                      <el-time-picker
+                        v-model="batchUnifyTime"
+                        value-format="HH:mm"
+                        format="HH:mm"
+                        placeholder="选择时间"
+                        class="unify-time-picker"
+                      />
+                      <button class="btn-ghost primary-outline" @click="applyUnifyTime">统一应用</button>
+                    </div>
+                  </div>
+
+                  <div class="assignment-board">
+                    <div class="assignment-head">
+                      <span>启用</span>
+                      <span>账号 / 平台</span>
+                      <span>时间段</span>
+                      <span>连接素材</span>
+                      <span>视频链接</span>
+                      <span>状态</span>
+                      <span>操作</span>
+                    </div>
+                    <div
+                      v-for="row in batchRows"
+                      :key="row.local_id"
+                      class="assignment-row"
+                      :class="{ linked: row.material_file_id, duplicate: batchDuplicateCheck && isDuplicateBatchUrl(row.video_url), disabled: !row.enabled }"
+                    >
+                      <div class="assignment-link-line" :style="{ background: row.material_file_id ? materialColor(row.material_file_id) : '#cbd5e1' }"></div>
+                      <label class="assignment-enable"><input v-model="row.enabled" type="checkbox" /></label>
+                      <div class="assignment-account">
+                        <strong>{{ row.account_name }}</strong>
+                        <span>{{ platformLabel(row.platform) }}</span>
+                      </div>
+                      <input v-model="row.time" class="mini-input assignment-time" placeholder="09:00" />
+                      <div class="assignment-material">
+                        <strong>{{ row.video_title || '未连接素材' }}</strong>
+                        <span v-if="row.material_file_id">已连接 {{ row.time || '未设时间' }}</span>
+                        <span v-else>点击右侧按钮连接当前素材</span>
+                      </div>
+                      <input v-model.trim="row.video_url" class="mini-input link" placeholder="连接素材后自动填写，也可手动粘贴" />
+                      <div>
+                        <span v-if="batchDuplicateCheck && isDuplicateBatchUrl(row.video_url)" class="duplicate-tag">重复</span>
+                        <span v-else-if="row.video_url" class="ok-tag">正常</span>
+                        <span v-else class="muted-tag">待填</span>
+                      </div>
+                      <div class="assignment-actions">
+                        <button class="row-link" :disabled="!focusedMaterial" @click="assignFocusedMaterialToRow(row)">连接</button>
+                        <button v-if="row.material_file_id" class="row-link" @click="clearBatchRowMaterial(row)">清除</button>
+                        <button class="row-link danger" @click="removeBatchRow(row)">删除</button>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="batch-tip" :class="{ danger: batchDuplicateCheck && duplicateBatchUrls.length }">
+                    <template v-if="batchDuplicateCheck && duplicateBatchUrls.length">
+                      发现 {{ duplicateBatchUrls.length }} 个重复链接，已高亮，请修改后再下发。
+                    </template>
+                    <template v-else>
+                      批量下发会生成 {{ batchSubmitRows.length }} 条独立任务，同一账号可同时下发多个时间段。
+                    </template>
+                  </div>
+                </div>
+              </template>
+            </section>
+          </div>
+
+          <template v-else>
             <div class="form-row two">
               <div class="form-field">
                 <label><em>*</em>城市账号</label>
@@ -293,6 +568,31 @@
               </div>
             </div>
 
+            <div class="material-picker">
+              <div class="material-picker-head">
+                <div>
+                  <strong>城市素材</strong>
+                  <span>{{ selectedCity?.material_folder_path ? `来自 ${selectedCity.material_folder_path}` : '该城市未绑定素材文件夹' }}</span>
+                </div>
+                <button v-if="distForm.city_id" class="btn-ghost" @click="loadCityMaterials(distForm.city_id)">刷新素材</button>
+              </div>
+              <div v-if="cityMaterialLoading" class="material-empty">正在加载素材...</div>
+              <div v-else-if="selectedCityMaterials.length" class="material-grid">
+                <button
+                  v-for="file in selectedCityMaterials"
+                  :key="file.id"
+                  class="material-option"
+                  :class="{ active: distForm.material_file_id === file.id }"
+                  @click="selectMaterialForSingle(file)"
+                >
+                  <el-icon><VideoCamera /></el-icon>
+                  <strong>{{ file.name }}</strong>
+                  <span>{{ file.size_human || formatBytes(file.size) }} · {{ file.type_name || '未分类' }}</span>
+                </button>
+              </div>
+              <div v-else class="material-empty">{{ selectedCity?.material_folder_path ? '该文件夹暂无视频素材' : '请先在素材录入页给城市绑定文件夹' }}</div>
+            </div>
+
             <div class="form-field">
               <label>网盘链接 / 素材地址</label>
               <input v-model="distForm.video_url" class="text-input" placeholder="https://pan.example.com/xxx" />
@@ -301,82 +601,6 @@
             <div class="form-field">
               <label>发布要求 / 备注</label>
               <textarea v-model="distForm.requirement" class="text-input" style="height: 86px; resize: vertical;" placeholder="发布时间建议、话题标签、特殊要求等"></textarea>
-            </div>
-          </template>
-
-          <template v-else>
-            <div v-if="distForm.city_id && !selectedCityAccounts.length" class="batch-empty">
-              该城市暂无账号，请先到城市账号页添加账号后再批量下发
-            </div>
-            <div v-else class="batch-panel">
-              <div class="batch-tools">
-                <div class="form-field">
-                  <label>批量粘贴</label>
-                  <textarea v-model="batchPasteText" class="text-input paste-input" placeholder="支持账号 + 时间 + 链接，同一账号可多行，如：&#10;佳佳 16:00 https://xxx.com/video1&#10;佳佳 20:00 https://xxx.com/video2&#10;露露 16:00 https://xxx.com/video3"></textarea>
-                </div>
-                <div class="batch-actions">
-                  <button class="btn-ghost" @click="applyBatchPaste">从粘贴生成任务</button>
-                  <button class="btn-ghost" @click="generateDualTimeRows">生成 16:00 / 20:00</button>
-                  <label class="duplicate-switch">
-                    <input v-model="batchDuplicateCheck" type="checkbox" />
-                    <span>检测重复链接</span>
-                  </label>
-                  <div class="time-apply-group">
-                    <el-time-picker
-                      v-model="batchUnifyTime"
-                      value-format="HH:mm"
-                      format="HH:mm"
-                      placeholder="选择时间"
-                      class="unify-time-picker"
-                    />
-                    <button class="btn-ghost primary-outline" @click="applyUnifyTime">统一应用</button>
-                  </div>
-                </div>
-              </div>
-
-              <div class="batch-table-wrap">
-                <table class="batch-table">
-                  <thead>
-                    <tr>
-                      <th style="width:70px">启用</th>
-                      <th>账号</th>
-                      <th style="width:120px">时间</th>
-                      <th>视频链接 / 素材地址</th>
-                      <th style="width:110px">检测状态</th>
-                      <th style="width:80px">操作</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr
-                      v-for="row in batchRows"
-                      :key="row.local_id"
-                      :class="{ filled: row.video_url, duplicate: batchDuplicateCheck && isDuplicateBatchUrl(row.video_url) }"
-                    >
-                      <td><input v-model="row.enabled" type="checkbox" /></td>
-                      <td>
-                        <strong>{{ row.account_name }}</strong>
-                        <span>{{ platformLabel(row.platform) }}</span>
-                      </td>
-                      <td><input v-model="row.time" class="mini-input" placeholder="09:00" /></td>
-                      <td><input v-model.trim="row.video_url" class="mini-input link" placeholder="粘贴该账号今天要发布的视频链接" /></td>
-                      <td>
-                        <span v-if="batchDuplicateCheck && isDuplicateBatchUrl(row.video_url)" class="duplicate-tag">重复链接</span>
-                        <span v-else-if="row.video_url" class="ok-tag">正常</span>
-                        <span v-else class="muted-tag">待填写</span>
-                      </td>
-                      <td><button class="row-link danger" @click="removeBatchRow(row)">删除</button></td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-              <div class="batch-tip" :class="{ danger: batchDuplicateCheck && duplicateBatchUrls.length }">
-                <template v-if="batchDuplicateCheck && duplicateBatchUrls.length">
-                  发现 {{ duplicateBatchUrls.length }} 个重复链接，已高亮，请修改后再下发。
-                </template>
-                <template v-else>
-                  批量下发会生成 {{ batchSubmitRows.length }} 条独立任务，同一账号可同时下发多个时间段。
-                </template>
-              </div>
             </div>
           </template>
         </div>
@@ -401,9 +625,9 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import IconFont from '@/components/IconFont.vue'
 import {
   Calendar, Promotion, CircleCheckFilled, Clock, WarningFilled,
-  Close, Link, Location, Bell, Loading, Document, EditPen, Delete
+  Close, Link, Location, Bell, Loading, Document, EditPen, Delete, VideoCamera, View
 } from '@element-plus/icons-vue'
-import { batchCreateCityDistributions, createCityDistribution, deleteCityDistribution, getAccounts, getCities, getCityBoard, getCityDistributions, getCityTaskDetail, updateCityDistribution } from '@/api'
+import { batchCreateCityDistributions, createCityDistribution, createMediaPreviewToken, createMediaShareToken, deleteCityDistribution, getAccounts, getCities, getCityBoard, getCityDistributions, getCityMaterialFiles, getCityTaskDetail, updateCityDailyStatus, updateCityDistribution } from '@/api'
 import { applySystemSettings, loadSystemSettings } from '@/utils/systemSettings'
 import ConfigurablePageRenderer from '@/layout-builder/ConfigurablePageRenderer.vue'
 import { layoutModuleCatalog } from '@/layout-builder/moduleCatalog'
@@ -447,14 +671,25 @@ const currentDate = ref(dayjs().format('YYYY-MM-DD'))
 const cityFilter = ref('all')
 const showDialog = ref(false)
 const showTaskDetail = ref(false)
+const showDailyStatusDialog = ref(false)
 const submitting = ref(false)
+const submittingDailyStatus = ref(false)
 const distributeMode = ref('single')
 const editingDistribution = ref(null)
 const activeCity = ref(null)
+const dailyStatusCity = ref(null)
 const taskDetail = ref({ month: dayjs().format('YYYY-MM'), summary: {}, tasks: [] })
 const cities = ref([])
 const distributions = ref([])
 const cityAccounts = ref([])
+const cityMaterials = ref([])
+const cityMaterialLoading = ref(false)
+const dailyMaterialUsages = ref([])
+const selectedMaterialDate = ref('')
+const materialUsageFilter = ref('all')
+const materialKeyword = ref('')
+const selectedMaterialIds = ref([])
+const focusedMaterialId = ref('')
 const batchPasteText = ref('')
 const batchRows = ref([])
 const batchUnifyTime = ref('20:00')
@@ -462,6 +697,18 @@ const batchDuplicateCheck = ref(true)
 let batchRowSeed = 0
 
 const colorSet = ['#6366f1', '#f97316', '#10b981', '#ec4899', '#8b5cf6', '#f59e0b', '#0ea5e9', '#84cc16', '#ef4444', '#14b8a6']
+const dailyStatusOptions = {
+  normal: '正常发布',
+  vacation: '休假中',
+  paused: '暂停发布',
+  no_publish: '今日不发布',
+  other: '其他情况'
+}
+
+const dailyStatusForm = reactive({
+  status: 'normal',
+  reason: ''
+})
 
 const normalizeBoundDate = (value) => {
   if (!value) return ''
@@ -485,6 +732,7 @@ const distForm = reactive({
   city_id: '',
   account_id: '',
   time: '09:00',
+  material_file_id: '',
   video_title: '',
   video_url: '',
   requirement: ''
@@ -495,7 +743,7 @@ const summary = computed(() => {
   const list = cities.value
   const total = list.length
   let published = 0, pending = 0, overdue = 0, totalAccounts = 0
-  let publishedCities = 0, pendingCities = 0, overdueCities = 0
+  let publishedCities = 0, pendingCities = 0, overdueCities = 0, dailyStatusCities = 0
   list.forEach(c => {
     published += c.published_count || 0
     pending += c.pending_count || 0
@@ -504,11 +752,12 @@ const summary = computed(() => {
     if ((c.published_count || 0) > 0) publishedCities++
     if ((c.pending_count || 0) > 0) pendingCities++
     if ((c.overdue_count || 0) > 0) overdueCities++
+    if (hasDailyStatus(c)) dailyStatusCities++
   })
   const dist = distributions.value
   return {
     total, published, pending, overdue, totalAccounts,
-    publishedCities, pendingCities, overdueCities,
+    publishedCities, pendingCities, overdueCities, dailyStatusCities,
     distConfirmed: dist.filter(d => d.status === 'published' || d.status === 'confirmed').length,
     distPending: dist.filter(d => d.status === 'pending' || d.status === 'distributed').length,
     distOverdue: dist.filter(d => d.status === 'overdue' || d.status === 'failed').length
@@ -524,6 +773,7 @@ const filteredCities = computed(() => {
   if (cityFilter.value === 'ok') return cities.value.filter(c => (c.published_count || 0) > 0 && (c.pending_count || 0) === 0 && (c.overdue_count || 0) === 0)
   if (cityFilter.value === 'pending') return cities.value.filter(c => (c.pending_count || 0) > 0)
   if (cityFilter.value === 'overdue') return cities.value.filter(c => (c.overdue_count || 0) > 0)
+  if (cityFilter.value === 'special') return cities.value.filter(c => hasDailyStatus(c))
   return cities.value
 })
 
@@ -534,6 +784,45 @@ const selectedCityAccounts = computed(() => {
   const nested = Array.isArray(city.accounts) ? city.accounts : []
   if (nested.length) return nested
   return cityAccounts.value.filter(account => account.city_id === city.id)
+})
+const selectedCityMaterials = computed(() => cityMaterials.value)
+const materialDateGroups = computed(() => {
+  const groups = new Map()
+  selectedCityMaterials.value.forEach(file => {
+    const key = file.date_key || '未归类'
+    if (!groups.has(key)) {
+      groups.set(key, { key, label: key, sort: file.date_sort || key, files: [] })
+    }
+    groups.get(key).files.push(file)
+  })
+  return [...groups.values()].sort((a, b) => String(b.sort).localeCompare(String(a.sort), 'zh-CN', { numeric: true }))
+})
+const activeDateMaterials = computed(() => {
+  const group = materialDateGroups.value.find(item => item.key === selectedMaterialDate.value)
+  return group?.files || []
+})
+const usedActiveMaterialCount = computed(() => activeDateMaterials.value.filter(file => materialDailyUsageCount(file.id)).length)
+const unusedActiveMaterialCount = computed(() => Math.max(0, activeDateMaterials.value.length - usedActiveMaterialCount.value))
+const filteredDateMaterials = computed(() => {
+  const keyword = normalizeText(materialKeyword.value)
+  return activeDateMaterials.value.filter(file => {
+    const used = materialDailyUsageCount(file.id) > 0
+    if (materialUsageFilter.value === 'unused' && used) return false
+    if (materialUsageFilter.value === 'used' && !used) return false
+    if (!keyword) return true
+    return normalizeText(file.name).includes(keyword) || normalizeText(file.type_name).includes(keyword)
+  })
+})
+const focusedMaterial = computed(() => selectedCityMaterials.value.find(file => file.id === focusedMaterialId.value) || null)
+const dailyMaterialUsageMap = computed(() => {
+  const map = new Map()
+  dailyMaterialUsages.value.forEach(row => {
+    const id = String(row.material_file_id || '')
+    if (!id) return
+    if (!map.has(id)) map.set(id, [])
+    map.get(id).push(row)
+  })
+  return map
 })
 const batchSubmitRows = computed(() => batchRows.value.filter(row => row.enabled && row.video_url))
 const normalizeUrl = (value = '') => String(value).trim().replace(/[，,。.;；]+$/g, '')
@@ -554,30 +843,48 @@ const canSubmitDistribute = computed(() => {
 })
 
 const cityStatusClass = (c) => {
-  if ((c.overdue_count || 0) > 0) return 'st-overdue'
-  if ((c.pending_count || 0) > 0) return 'st-pending'
-  if ((c.published_count || 0) > 0) return 'st-ok'
+  if (hasDailyStatus(c)) return 'st-daily'
+  if (cardOverdueCount(c) > 0) return 'st-overdue'
+  if (cardPublishingCount(c) > 0) return 'st-publishing'
+  if (cardPendingCount(c) > 0) return 'st-pending'
+  if (cardPublishedCount(c) > 0) return 'st-ok'
   return 'st-empty'
 }
 const cityStatusLabel = (c) => ({
-  'st-overdue': '超期未发', 'st-pending': '待确认', 'st-ok': '已发布', 'st-empty': '空'
+  'st-daily': dailyStatusLabel(c), 'st-overdue': '超期未发', 'st-publishing': '发布中', 'st-pending': '待处理', 'st-ok': '已发布', 'st-empty': '空'
 }[cityStatusClass(c)])
+const hasDailyStatus = (c) => c && c.daily_status && c.daily_status !== 'normal'
+const dailyStatusLabel = (c) => hasDailyStatus(c) ? (dailyStatusOptions[c.daily_status] || '特殊状态') : ''
+const dailyStatusClass = (c) => hasDailyStatus(c) ? `daily-${c.daily_status}` : ''
+const formatStatusTime = (value) => value ? dayjs(value).format('HH:mm') : ''
 
-const totalCount = (c) => (c.published_count || 0) + (c.pending_count || 0) + (c.overdue_count || 0)
+const cardPublishedCount = (c) => Number(c?.published_count) || 0
+const cardPublishingCount = (c) => Number(c?.publishing_count) || 0
+const cardPendingCount = (c) => Math.max(0, (Number(c?.pending_count) || 0) - cardPublishingCount(c))
+const cardOverdueCount = (c) => Number(c?.overdue_count) || 0
+const cardTaskCount = (c) => Number(c?.total_count) || totalCount(c)
+const totalCount = (c) => cardPublishedCount(c) + cardPendingCount(c) + cardPublishingCount(c) + cardOverdueCount(c)
 const progressOf = (c, k) => {
   const t = totalCount(c)
   if (!t) return 0
-  const v = k === 'published' ? c.published_count || 0 : k === 'pending' ? c.pending_count || 0 : c.overdue_count || 0
+  const v = k === 'published'
+    ? cardPublishedCount(c)
+    : k === 'pending'
+      ? cardPendingCount(c)
+      : k === 'publishing'
+        ? cardPublishingCount(c)
+        : cardOverdueCount(c)
   return Math.round((v / t) * 100)
 }
 
 const distStatusLabel = (s) => ({
-  published: '已发布', confirmed: '已确认', distributed: '待确认', pending: '待发布',
+  published: '已发布', confirmed: '已确认', distributed: '待下载', pending: '待发布',
+  downloaded: '已下载', publishing: '发布中',
   failed: '失败', overdue: '超期'
-}[s] || s)
-const distColor = (s) => ({ published: '#10b981', confirmed: '#10b981', distributed: '#f97316', pending: '#f59e0b', failed: '#ef4444', overdue: '#ef4444' }[s] || '#6366f1')
+}[s] || s || '待处理')
+const distColor = (s) => ({ published: '#10b981', confirmed: '#10b981', distributed: '#f97316', pending: '#f59e0b', downloaded: '#0284c7', publishing: '#4f46e5', failed: '#ef4444', overdue: '#ef4444' }[s] || '#6366f1')
 const distPillClass = (s) => ({
-  published: 'green', confirmed: 'green', distributed: 'amber', pending: 'amber', failed: 'pink', overdue: 'pink'
+  published: 'green', confirmed: 'green', distributed: 'amber', pending: 'amber', downloaded: 'downloaded', publishing: 'publishing', failed: 'pink', overdue: 'pink'
 }[s] || '')
 
 const formatDay = (d) => dayjs(d).format('MM/DD')
@@ -587,6 +894,72 @@ const platformLabel = (p) => ({ douyin: '抖音', kuaishou: '快手', weixin: '�
 const accountOptionLabel = (account) => {
   const platform = account.platform_label || account.platform || '账号'
   return `${account.name} · ${platform}`
+}
+const formatBytes = (bytes) => {
+  const value = Number(bytes || 0)
+  if (!value) return '0 B'
+  const units = ['B', 'KB', 'MB', 'GB']
+  let size = value
+  let index = 0
+  while (size >= 1024 && index < units.length - 1) {
+    size /= 1024
+    index += 1
+  }
+  return `${size.toFixed(size >= 10 || index === 0 ? 0 : 1)} ${units[index]}`
+}
+const deriveMaterialDate = (file = {}) => {
+  const folderPath = String(file.folder_path || file.path || '')
+  const segments = folderPath.split('/').map(item => item.trim()).filter(Boolean)
+  const lastSegment = segments[segments.length - 1] || ''
+  if (/^\d{1,2}[.月-]\d{1,2}日?$/.test(lastSegment)) {
+    const [month, day] = lastSegment.replace('月', '.').replace('日', '').split(/[.-]/)
+    return {
+      key: `${Number(month)}.${Number(day)}`,
+      sort: `9999-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+    }
+  }
+  if (/^\d{4}-\d{1,2}-\d{1,2}$/.test(lastSegment)) {
+    const date = dayjs(lastSegment)
+    if (date.isValid()) return { key: `${date.month() + 1}.${date.date()}`, sort: date.format('YYYY-MM-DD') }
+  }
+  const created = dayjs(file.created_at || file.updated_at)
+  if (created.isValid()) return { key: `${created.month() + 1}.${created.date()}`, sort: created.format('YYYY-MM-DD') }
+  return { key: '未归类', sort: '0000-00-00' }
+}
+const materialDateCandidates = () => {
+  const date = dayjs(distForm.date || currentDate.value)
+  if (!date.isValid()) return []
+  return [
+    `${date.month() + 1}.${date.date()}`,
+    `${String(date.month() + 1).padStart(2, '0')}.${String(date.date()).padStart(2, '0')}`,
+    date.format('YYYY-MM-DD')
+  ]
+}
+const pickDefaultMaterialDate = () => {
+  const groups = materialDateGroups.value
+  if (!groups.length) {
+    selectedMaterialDate.value = ''
+    selectedMaterialIds.value = []
+    focusedMaterialId.value = ''
+    return
+  }
+  const candidates = materialDateCandidates()
+  const matched = groups.find(group => candidates.includes(group.key))
+  selectedMaterialDate.value = matched?.key || groups[0].key
+  selectedMaterialIds.value = selectedMaterialIds.value.filter(id => activeDateMaterials.value.some(file => file.id === id))
+  if (!selectedMaterialIds.value.includes(focusedMaterialId.value)) focusedMaterialId.value = selectedMaterialIds.value[0] || ''
+}
+const setSelectedMaterialDate = (key) => {
+  selectedMaterialDate.value = key
+  materialKeyword.value = ''
+  selectedMaterialIds.value = []
+  focusedMaterialId.value = ''
+}
+const setMaterialUsageFilter = (value) => {
+  materialUsageFilter.value = value
+  const visibleIds = new Set(filteredDateMaterials.value.map(file => file.id))
+  selectedMaterialIds.value = selectedMaterialIds.value.filter(id => visibleIds.has(id))
+  if (!visibleIds.has(focusedMaterialId.value)) focusedMaterialId.value = selectedMaterialIds.value[0] || ''
 }
 const openLink = (url) => {
   if (url) window.open(url, '_blank', 'noopener,noreferrer')
@@ -614,6 +987,8 @@ const makeBatchRow = (account, overrides = {}) => ({
   account_name: account.name,
   platform: account.platform_label || account.platform || '',
   time: account.default_publish_time || distForm.time || loadSystemSettings().preferences.defaultPublishTime || '09:00',
+  material_file_id: '',
+  video_title: '',
   video_url: '',
   ...overrides
 })
@@ -686,6 +1061,226 @@ const loadAccounts = async () => {
   }
 }
 
+const normalizeMaterialFile = (file = {}) => ({
+  ...file,
+  id: String(file.id || ''),
+  name: String(file.name || '未命名视频'),
+  size: Number(file.size || 0),
+  size_human: file.size_human || formatBytes(file.size),
+  key: file.cos_key || file.key || file.object_key || '',
+  url: file.url || '',
+  type_name: file.type_name || '',
+  date_key: deriveMaterialDate(file).key,
+  date_sort: deriveMaterialDate(file).sort
+})
+
+const loadDailyMaterialUsages = async (cityId = distForm.city_id, date = distForm.date || currentDate.value) => {
+  if (!cityId || !date) {
+    dailyMaterialUsages.value = []
+    return
+  }
+  try {
+    const data = await getCityDistributions({
+      cityId,
+      dateFrom: date,
+      dateTo: date,
+      pageSize: 1000
+    })
+    dailyMaterialUsages.value = (data.list || []).filter(item => item.material_file_id)
+  } catch {
+    dailyMaterialUsages.value = []
+  }
+}
+
+const loadCityMaterials = async (cityId = distForm.city_id) => {
+  if (!cityId) {
+    cityMaterials.value = []
+    dailyMaterialUsages.value = []
+    return
+  }
+  cityMaterialLoading.value = true
+  try {
+    const [data] = await Promise.all([
+      getCityMaterialFiles(cityId, { pageSize: 300 }),
+      loadDailyMaterialUsages(cityId)
+    ])
+    cityMaterials.value = (data.list || []).map(normalizeMaterialFile)
+    pickDefaultMaterialDate()
+  } catch (e) {
+    cityMaterials.value = []
+    dailyMaterialUsages.value = []
+    selectedMaterialDate.value = ''
+    selectedMaterialIds.value = []
+    focusedMaterialId.value = ''
+    ElMessage.warning(e?.response?.data?.message || e?.message || '城市素材加载失败')
+  } finally {
+    cityMaterialLoading.value = false
+  }
+}
+
+const getMaterialShareUrl = async (file) => {
+  const { shareUrl } = await createMediaShareToken(file)
+  return new URL(shareUrl, window.location.origin).toString()
+}
+const getMaterialPreviewUrl = async (file) => {
+  const { previewUrl } = await createMediaPreviewToken(file)
+  return new URL(previewUrl || file.url, window.location.origin).toString()
+}
+const copyMaterialLink = async (file) => {
+  try {
+    await copyText(await getMaterialShareUrl(file))
+  } catch (e) {
+    ElMessage.error(e?.response?.data?.message || e?.message || '复制链接失败')
+  }
+}
+const previewMaterialFile = async (file) => {
+  try {
+    openLink(await getMaterialPreviewUrl(file))
+  } catch (e) {
+    ElMessage.error(e?.response?.data?.message || e?.message || '视频预览失败')
+  }
+}
+
+const selectMaterialForSingle = async (file) => {
+  try {
+    distForm.material_file_id = file.id
+    distForm.video_title = file.name
+    distForm.video_url = await getMaterialShareUrl(file)
+    ElMessage.success('已选择素材并生成下发链接')
+  } catch (e) {
+    ElMessage.error(e?.response?.data?.message || e?.message || '素材链接生成失败')
+  }
+}
+
+const toggleSelectedMaterial = (file) => {
+  const id = file.id
+  selectedMaterialIds.value = selectedMaterialIds.value.includes(id)
+    ? selectedMaterialIds.value.filter(item => item !== id)
+    : [...selectedMaterialIds.value, id]
+}
+const chooseMaterialFromBrowser = (file) => {
+  if (distributeMode.value === 'single') return selectMaterialForSingle(file)
+  focusedMaterialId.value = file.id
+  if (!selectedMaterialIds.value.includes(file.id)) {
+    selectedMaterialIds.value = [...selectedMaterialIds.value, file.id]
+  }
+}
+const selectAllActiveMaterials = () => {
+  selectedMaterialIds.value = filteredDateMaterials.value.map(file => file.id)
+  focusedMaterialId.value = selectedMaterialIds.value[0] || ''
+}
+const selectUnusedActiveMaterials = () => {
+  const keyword = normalizeText(materialKeyword.value)
+  const unused = activeDateMaterials.value.filter(file => {
+    if (materialDailyUsageCount(file.id)) return false
+    if (!keyword) return true
+    return normalizeText(file.name).includes(keyword) || normalizeText(file.type_name).includes(keyword)
+  })
+  selectedMaterialIds.value = unused.map(file => file.id)
+  focusedMaterialId.value = selectedMaterialIds.value[0] || ''
+  materialUsageFilter.value = 'unused'
+  ElMessage[unused.length ? 'success' : 'warning'](unused.length ? `已选择 ${unused.length} 个未下发素材` : '当前日期素材都已下发过')
+}
+const clearSelectedMaterials = () => {
+  selectedMaterialIds.value = []
+  focusedMaterialId.value = ''
+}
+const selectedMaterialFiles = () => selectedMaterialIds.value
+  .map(id => selectedCityMaterials.value.find(file => file.id === id))
+  .filter(Boolean)
+const materialColor = (id = '') => {
+  const text = String(id)
+  let hash = 0
+  for (let index = 0; index < text.length; index += 1) hash = (hash + text.charCodeAt(index) * (index + 1)) % colorSet.length
+  return colorSet[hash] || '#6366f1'
+}
+const materialUsageCount = (id = '') => batchRows.value.filter(row => row.material_file_id === id).length
+const materialDailyUsageCount = (id = '') => dailyMaterialUsageMap.value.get(String(id))?.length || 0
+const materialUsageSummary = (id = '') => {
+  const rows = dailyMaterialUsageMap.value.get(String(id)) || []
+  if (!rows.length) return ''
+  return rows
+    .slice(0, 3)
+    .map(row => `${row.account_name || '未知账号'} ${row.publish_time || row.time || '未设时间'}`)
+    .join('、') + (rows.length > 3 ? ` 等 ${rows.length} 条` : '')
+}
+const applyMaterialToBatchRow = async (row, file) => {
+  row.material_file_id = file.id
+  row.video_title = file.name
+  row.video_url = await getMaterialShareUrl(file)
+  row.enabled = true
+}
+const assignFocusedMaterialToRow = async (row) => {
+  if (!focusedMaterial.value) return ElMessage.warning('请先在左侧选择一个素材')
+  submitting.value = true
+  try {
+    await applyMaterialToBatchRow(row, focusedMaterial.value)
+    if (!selectedMaterialIds.value.includes(focusedMaterial.value.id)) {
+      selectedMaterialIds.value = [...selectedMaterialIds.value, focusedMaterial.value.id]
+    }
+    ElMessage.success(`已连接到「${row.account_name} · ${row.time || '未设时间'}」`)
+  } catch (e) {
+    ElMessage.error(e?.response?.data?.message || e?.message || '素材连接失败')
+  } finally {
+    submitting.value = false
+  }
+}
+const clearBatchRowMaterial = (row) => {
+  row.material_file_id = ''
+  row.video_title = ''
+  row.video_url = ''
+}
+const assignSelectedMaterialsToRows = async () => {
+  const files = selectedMaterialFiles()
+  if (!files.length) return ElMessage.warning('请先从左侧选择素材')
+  const rows = batchRows.value.filter(row => row.enabled)
+  if (!rows.length) return ElMessage.warning('右侧暂无启用账号任务')
+  submitting.value = true
+  try {
+    const count = Math.min(files.length, rows.length)
+    for (let index = 0; index < count; index += 1) {
+      await applyMaterialToBatchRow(rows[index], files[index])
+    }
+    ElMessage[count < rows.length ? 'warning' : 'success'](`已分配 ${count} 个素材${count < rows.length ? '，还有账号未分配' : ''}`)
+  } catch (e) {
+    ElMessage.error(e?.response?.data?.message || e?.message || '素材分配失败')
+  } finally {
+    submitting.value = false
+  }
+}
+const applyFirstMaterialToAllRows = async () => {
+  const file = selectedMaterialFiles()[0]
+  if (!file) return ElMessage.warning('请先从左侧选择一个素材')
+  const rows = batchRows.value.filter(row => row.enabled)
+  if (!rows.length) return ElMessage.warning('右侧暂无启用账号任务')
+  submitting.value = true
+  try {
+    for (const row of rows) {
+      await applyMaterialToBatchRow(row, file)
+    }
+    ElMessage.success(`已将「${file.name}」应用到 ${rows.length} 个账号`)
+  } catch (e) {
+    ElMessage.error(e?.response?.data?.message || e?.message || '素材分配失败')
+  } finally {
+    submitting.value = false
+  }
+}
+
+const selectMaterialForBatchRow = async (row) => {
+  const file = selectedCityMaterials.value.find(item => item.id === row.material_file_id)
+  if (!file) {
+    row.video_title = ''
+    return
+  }
+  try {
+    row.video_title = file.name
+    row.video_url = await getMaterialShareUrl(file)
+  } catch (e) {
+    row.material_file_id = ''
+    ElMessage.error(e?.response?.data?.message || e?.message || '素材链接生成失败')
+  }
+}
+
 const openDistribute = (city) => {
   editingDistribution.value = null
   distributeMode.value = 'single'
@@ -694,12 +1289,14 @@ const openDistribute = (city) => {
   if (city && city.id) {
     distForm.city_id = city.id
     pickDefaultAccount()
+    loadCityMaterials(city.id)
   } else {
     const defaultCity = loadSystemSettings().preferences.defaultCity
     const matchedCity = cities.value.find(item => String(item.id) === String(defaultCity))
     if (matchedCity) {
       distForm.city_id = matchedCity.id
       pickDefaultAccount()
+      loadCityMaterials(matchedCity.id)
     }
   }
   buildBatchRows()
@@ -710,9 +1307,16 @@ const resetDistForm = () => {
   distForm.city_id = ''
   distForm.account_id = ''
   distForm.time = preferences.defaultPublishTime || '09:00'
+  distForm.material_file_id = ''
   distForm.video_title = ''
   distForm.video_url = ''
   distForm.requirement = ''
+  cityMaterials.value = []
+  dailyMaterialUsages.value = []
+  selectedMaterialDate.value = ''
+  materialKeyword.value = ''
+  selectedMaterialIds.value = []
+  focusedMaterialId.value = ''
   batchPasteText.value = ''
   batchRows.value = []
   batchUnifyTime.value = preferences.defaultPublishTime || '20:00'
@@ -725,7 +1329,16 @@ const pickDefaultAccount = () => {
 }
 const onCityChange = () => {
   distForm.account_id = ''
+  distForm.material_file_id = ''
+  distForm.video_title = ''
+  distForm.video_url = ''
+  selectedMaterialDate.value = ''
+  selectedMaterialIds.value = []
+  focusedMaterialId.value = ''
+  materialKeyword.value = ''
+  dailyMaterialUsages.value = []
   pickDefaultAccount()
+  loadCityMaterials(distForm.city_id)
 }
 const closeDialog = () => {
   showDialog.value = false
@@ -808,9 +1421,10 @@ const submitDist = async () => {
         date: distForm.date,
         city_id: distForm.city_id,
         account_id: row.account_id,
-        video_title: `${city?.name || '城市'} · ${row.account_name}`,
+        video_title: row.video_title || `${city?.name || '城市'} · ${row.account_name}`,
         video_url: normalizeUrl(row.video_url),
         material_url: normalizeUrl(row.video_url),
+        material_file_id: row.material_file_id || undefined,
         time: row.time || distForm.time || '09:00',
         publish_time: row.time || distForm.time || '09:00',
         publish_requirement: distForm.requirement || '',
@@ -820,7 +1434,7 @@ const submitDist = async () => {
       await batchCreateCityDistributions(items)
       ElMessage.success(`已批量下发 ${items.length} 条任务`)
     } else {
-      await createCityDistribution(distForm)
+      await createCityDistribution({ ...distForm, material_url: distForm.video_url })
       ElMessage.success('下发成功')
     }
     closeDialog()
@@ -886,9 +1500,11 @@ const editDistribution = (d) => {
   distForm.city_id = d.city_id || ''
   distForm.account_id = d.account_id || ''
   distForm.time = d.time || '09:00'
+  distForm.material_file_id = d.material_file_id || ''
   distForm.video_title = d.video_title || '城市下发任务'
   distForm.video_url = d.video_url || ''
   distForm.requirement = d.publish_requirement || d.requirement || ''
+  loadCityMaterials(distForm.city_id)
   showDialog.value = true
 }
 
@@ -910,6 +1526,45 @@ const removeDistribution = async (d) => {
 
 const openCityDetail = (c) => openTaskDetail(c)
 const nudge = (c) => { ElMessage.success('已向「' + c.name + '」发送催办通知') }
+const openDailyStatusDialog = (city) => {
+  dailyStatusCity.value = city
+  dailyStatusForm.status = city.daily_status || 'normal'
+  dailyStatusForm.reason = city.daily_status_reason || ''
+  showDailyStatusDialog.value = true
+}
+const closeDailyStatusDialog = () => {
+  showDailyStatusDialog.value = false
+  dailyStatusCity.value = null
+  dailyStatusForm.status = 'normal'
+  dailyStatusForm.reason = ''
+}
+const saveDailyStatus = async () => {
+  if (!dailyStatusCity.value?.id) return
+  if (dailyStatusForm.status !== 'normal' && !dailyStatusForm.reason) {
+    return ElMessage.warning('请填写今日状态原因')
+  }
+  submittingDailyStatus.value = true
+  try {
+    const saved = await updateCityDailyStatus(dailyStatusCity.value.id, {
+      date: currentDate.value,
+      status: dailyStatusForm.status,
+      reason: dailyStatusForm.reason
+    })
+    const target = cities.value.find(city => city.id === dailyStatusCity.value.id)
+    if (target) {
+      target.daily_status = saved.status || dailyStatusForm.status
+      target.daily_status_reason = saved.reason || dailyStatusForm.reason
+      target.daily_status_updated_at = saved.updated_at || dayjs().format('YYYY-MM-DD HH:mm:ss')
+    }
+    ElMessage.success(dailyStatusForm.status === 'normal' ? '已恢复正常发布状态' : '今日状态已记录')
+    closeDailyStatusDialog()
+    loadBoard()
+  } catch (e) {
+    ElMessage.error(e?.response?.data?.message || e?.message || '状态保存失败')
+  } finally {
+    submittingDailyStatus.value = false
+  }
+}
 const openTaskDetail = async (c) => {
   activeCity.value = c
   showTaskDetail.value = true
@@ -936,6 +1591,11 @@ onBeforeUnmount(() => {
 watch(currentDate, () => {
   distForm.date = currentDate.value
   loadBoard()
+})
+watch(() => distForm.date, () => {
+  if (!showDialog.value || editingDistribution.value || !distForm.city_id) return
+  loadDailyMaterialUsages(distForm.city_id)
+  pickDefaultMaterialDate()
 })
 watch(layoutBindings, (value) => applyLayoutBindings(value), { deep: true, immediate: true })
 </script>
@@ -966,8 +1626,10 @@ watch(layoutBindings, (value) => applyLayoutBindings(value), { deep: true, immed
 }
 .field-inline:hover { border-color: #c7d2fe; }
 .field-inline .el-icon { font-size: 15px; }
+.field-inline.compact { height: 34px; padding: 0 10px; }
 :deep(.inline-picker .el-input__wrapper) { box-shadow: none !important; padding: 0; background: transparent; }
 :deep(.inline-picker .el-input__inner) { font-size: 13px; color: #111827; }
+.field-inline.compact :deep(.inline-picker) { width: 122px; }
 
 .btn-primary {
   height: 40px; padding: 0 16px; border-radius: 10px; border: 0; cursor: pointer;
@@ -1054,6 +1716,7 @@ watch(layoutBindings, (value) => applyLayoutBindings(value), { deep: true, immed
   display: flex; justify-content: space-between; align-items: flex-start;
   margin-bottom: 18px; gap: 12px;
 }
+.panel-tools { display: flex; align-items: center; justify-content: flex-end; gap: 10px; flex-wrap: wrap; }
 .panel-head h3 { font-size: 16px; font-weight: 700; color: #0f172a; letter-spacing: -0.01em; margin: 0 0 4px; }
 .panel-head p { font-size: 12.5px; color: #6b7280; margin: 0; }
 
@@ -1080,6 +1743,7 @@ watch(layoutBindings, (value) => applyLayoutBindings(value), { deep: true, immed
 .city-card {
   background: #fff; border: 1.5px solid #eceff5; border-radius: 14px;
   padding: 16px; transition: all 0.2s; cursor: pointer;
+  position: relative; overflow: hidden; min-height: 238px;
 }
 .city-card:hover {
   transform: translateY(-2px); border-color: #c7d2fe;
@@ -1087,9 +1751,15 @@ watch(layoutBindings, (value) => applyLayoutBindings(value), { deep: true, immed
 }
 .city-card.st-overdue { border-color: #fecaca; background: linear-gradient(180deg, #fef2f2 0%, #fff 30%); }
 .city-card.st-pending { border-color: #fcd34d; background: linear-gradient(180deg, #fef3c7 0%, #fff 30%); }
+.city-card.st-publishing { border-color: #c7d2fe; background: linear-gradient(180deg, #eef2ff 0%, #fff 30%); }
 .city-card.st-ok { border-color: #a7f3d0; background: linear-gradient(180deg, #ecfdf5 0%, #fff 30%); }
+.city-card.st-daily { border-color: #c4b5fd; background: linear-gradient(180deg, #f5f3ff 0%, #fff 36%); }
+.city-card.daily-vacation { border-color: #93c5fd; background: linear-gradient(180deg, #eff6ff 0%, #fff 36%); }
+.city-card.daily-paused { border-color: #fca5a5; background: linear-gradient(180deg, #fef2f2 0%, #fff 36%); }
+.city-card.daily-no_publish { border-color: #fcd34d; background: linear-gradient(180deg, #fffbeb 0%, #fff 36%); }
+.city-card.daily-other { border-color: #c4b5fd; background: linear-gradient(180deg, #f5f3ff 0%, #fff 36%); }
 
-.card-hero { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
+.card-hero { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; position: relative; z-index: 3; }
 .city-avatar {
   width: 44px; height: 44px; border-radius: 11px; display: grid; place-items: center;
   font-size: 14px; font-weight: 700; flex-shrink: 0;
@@ -1104,35 +1774,81 @@ watch(layoutBindings, (value) => applyLayoutBindings(value), { deep: true, immed
 }
 .status-badge.st-ok { background: #d1fae5; color: #047857; }
 .status-badge.st-pending { background: #fef3c7; color: #b45309; }
+.status-badge.st-publishing { background: #e0e7ff; color: #4338ca; }
 .status-badge.st-overdue { background: #fee2e2; color: #b91c1c; }
+.status-badge.daily-vacation { background: #dbeafe; color: #1d4ed8; }
+.status-badge.daily-paused { background: #fee2e2; color: #b91c1c; }
+.status-badge.daily-no_publish { background: #fef3c7; color: #b45309; }
+.status-badge.daily-other { background: #ede9fe; color: #6d28d9; }
+
+.daily-status-mask {
+  position: absolute;
+  z-index: 2;
+  left: 16px;
+  right: 16px;
+  top: 78px;
+  bottom: 58px;
+  margin: 0;
+  padding: 14px 16px;
+  border-radius: 12px;
+  border: 1px solid #ddd6fe;
+  background: rgba(245, 243, 255, 0.9);
+  backdrop-filter: blur(6px);
+  box-shadow: 0 12px 30px rgba(99, 102, 241, 0.12);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 5px;
+  pointer-events: none;
+}
+.daily-vacation .daily-status-mask { background: rgba(239, 246, 255, 0.92); border-color: #bfdbfe; }
+.daily-paused .daily-status-mask { background: rgba(254, 242, 242, 0.92); border-color: #fecaca; }
+.daily-no_publish .daily-status-mask { background: rgba(255, 251, 235, 0.94); border-color: #fde68a; }
+.daily-status-mask strong { font-size: 15px; color: #1e293b; font-weight: 800; }
+.daily-status-mask span { font-size: 12px; color: #475569; line-height: 1.45; }
+.daily-status-mask em { font-size: 11px; color: #94a3b8; font-style: normal; }
 
 .card-stats {
   display: flex; align-items: center; justify-content: space-between;
   padding: 10px 0; border-top: 1px dashed #e5e7eb; border-bottom: 1px dashed #e5e7eb;
   margin-bottom: 12px;
+  position: relative; z-index: 1;
 }
 .stat-item { display: flex; flex-direction: column; align-items: center; flex: 1; gap: 3px; }
 .stat-num { font-size: 20px; font-weight: 700; color: #0f172a; letter-spacing: -0.01em; font-variant-numeric: tabular-nums; }
 .stat-num.success { color: #059669; }
 .stat-num.amber { color: #ea580c; }
+.stat-num.indigo { color: #4f46e5; }
 .stat-num.pink { color: #dc2626; }
 .stat-label { font-size: 10.5px; color: #6b7280; font-weight: 500; }
 .stat-divider { width: 1px; height: 24px; background: #e5e7eb; }
 
-.card-progress { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+.card-progress { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; position: relative; z-index: 1; }
 .progress-track { position: relative; flex: 1; height: 6px; background: #f1f5f9; border-radius: 99px; overflow: hidden; }
 .progress-bar { position: absolute; top: 0; height: 100%; }
 .progress-bar.green { background: #10b981; left: 0; }
 .progress-bar.amber { background: #f59e0b; }
+.progress-bar.indigo { background: #6366f1; }
 .progress-bar.pink { background: #ef4444; }
 .progress-text { font-size: 11px; color: #6b7280; font-weight: 500; white-space: nowrap; }
 
-.card-actions { display: flex; gap: 8px; }
+.card-actions { display: flex; gap: 8px; position: absolute; z-index: 4; left: 16px; right: 16px; bottom: 16px; }
 .mini-btn {
   height: 32px; padding: 0 12px; border-radius: 8px; border: 1px solid #e5e7eb;
   background: #fff; color: #374151; font-size: 12px; font-weight: 500; cursor: pointer;
   display: inline-flex; align-items: center; gap: 4px; transition: all 0.15s;
   font-family: inherit;
+}
+.card-actions .action-icon-btn {
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  justify-content: center;
+  flex: 0 0 36px;
+}
+.card-actions .action-icon-btn .el-icon,
+.card-actions .action-icon-btn :deep(.el-icon) {
+  font-size: 15px;
 }
 .mini-btn:hover { border-color: #6366f1; color: #6366f1; background: #f5f3ff; }
 .mini-btn.warn:hover { border-color: #f97316; color: #f97316; background: #fff7ed; }
@@ -1200,6 +1916,7 @@ watch(layoutBindings, (value) => applyLayoutBindings(value), { deep: true, immed
 .detail-table td small { display: block; color: #94a3b8; font-size: 10px; margin-top: 4px; }
 .detail-pill { display: inline-flex; padding: 4px 8px; border-radius: 7px; background: #f1f5f9; color: #64748b; font-size: 11px; font-weight: 700; }
 .detail-pill.downloaded, .detail-pill.published, .detail-pill.confirmed { background: #dcfce7; color: #15803d; }
+.detail-pill.publishing { background: #e0e7ff; color: #4338ca; }
 .detail-pill.not-downloaded, .detail-pill.pending, .detail-pill.distributed { background: #fef3c7; color: #b45309; }
 .detail-pill.overdue, .detail-pill.failed { background: #fee2e2; color: #b91c1c; }
 .empty-inline { padding: 24px; text-align: center; color: #94a3b8; }
@@ -1216,6 +1933,8 @@ watch(layoutBindings, (value) => applyLayoutBindings(value), { deep: true, immed
 .status-pill { font-size: 11px; padding: 4px 10px; border-radius: 6px; font-weight: 600; }
 .status-pill.green { background: #d1fae5; color: #047857; }
 .status-pill.amber { background: #fef3c7; color: #b45309; }
+.status-pill.downloaded { background: #e0f2fe; color: #0369a1; }
+.status-pill.publishing { background: #e0e7ff; color: #4338ca; }
 .status-pill.pink { background: #fee2e2; color: #b91c1c; }
 
 .timeline-list { display: flex; flex-direction: column; gap: 12px; max-height: 720px; overflow-y: auto; padding-right: 4px; }
@@ -1296,10 +2015,39 @@ watch(layoutBindings, (value) => applyLayoutBindings(value), { deep: true, immed
   animation: slideUp 0.3s cubic-bezier(0.16,1,0.3,1);
   display: flex; flex-direction: column;
 }
-.dialog-card.large { width: min(980px, calc(100vw - 32px)); }
+.dialog-card.large {
+  width: min(1680px, 96vw);
+  height: min(1040px, 94vh);
+  max-width: 96vw;
+  max-height: 94vh;
+}
+.dialog-card.status-dialog { width: 560px; }
+.status-reason-input {
+  height: 116px;
+  padding-top: 12px;
+  resize: vertical;
+  line-height: 1.55;
+}
+.status-preview {
+  padding: 14px 16px;
+  border-radius: 12px;
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.status-preview strong { font-size: 15px; color: #0f172a; }
+.status-preview span { font-size: 12.5px; color: #64748b; line-height: 1.55; }
+.status-preview.daily-normal { background: #ecfdf5; border-color: #bbf7d0; }
+.status-preview.daily-vacation { background: #eff6ff; border-color: #bfdbfe; }
+.status-preview.daily-paused { background: #fef2f2; border-color: #fecaca; }
+.status-preview.daily-no_publish { background: #fffbeb; border-color: #fde68a; }
+.status-preview.daily-other { background: #f5f3ff; border-color: #ddd6fe; }
 @keyframes slideUp { from { opacity: 0; transform: translateY(16px) scale(0.98); } to { opacity: 1; transform: none; } }
 
 .dialog-head {
+  flex: 0 0 auto;
   padding: 20px 24px; display: flex; justify-content: space-between; align-items: flex-start;
   border-bottom: 1px solid #f1f5f9;
 }
@@ -1311,7 +2059,15 @@ watch(layoutBindings, (value) => applyLayoutBindings(value), { deep: true, immed
 }
 .icon-close:hover { background: #eef2ff; color: #6366f1; }
 
-.dialog-body { padding: 22px 24px; display: flex; flex-direction: column; gap: 14px; overflow-y: auto; }
+.dialog-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 22px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  overflow: auto;
+}
 .mode-tabs {
   display: inline-flex;
   width: fit-content;
@@ -1348,7 +2104,394 @@ watch(layoutBindings, (value) => applyLayoutBindings(value), { deep: true, immed
   outline: 0; transition: all 0.15s;
 }
 .text-input:focus { background: #fff; border-color: #6366f1; box-shadow: 0 0 0 4px rgba(99,102,241,0.12); }
-.paste-input { min-height: 96px; padding-top: 12px; resize: vertical; line-height: 1.5; }
+.distribute-workbench {
+  display: grid;
+  grid-template-columns: minmax(440px, 0.85fr) minmax(760px, 1.15fr);
+  gap: 16px;
+  align-items: stretch;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.city-material-browser,
+.distribute-task-pane {
+  border: 1px solid #e5e7eb;
+  border-radius: 14px;
+  background: #fff;
+  min-width: 0;
+}
+.city-material-browser {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-height: 0;
+}
+.distribute-task-pane {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 14px;
+  min-height: 0;
+  overflow: hidden;
+}
+.material-browser-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 14px;
+  border-bottom: 1px solid #eef2f7;
+  background: #fbfcff;
+}
+.material-browser-head strong {
+  display: block;
+  color: #0f172a;
+  font-size: 15px;
+}
+.material-browser-head span {
+  display: block;
+  max-width: 230px;
+  margin-top: 3px;
+  color: #64748b;
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.material-head-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  min-width: 0;
+}
+.material-usage-tabs {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  border-radius: 10px;
+  background: #eef2f7;
+  padding: 3px;
+}
+.material-usage-tabs button {
+  height: 28px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #64748b;
+  padding: 0 8px;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.material-usage-tabs button.active {
+  background: #fff;
+  color: #4f46e5;
+  box-shadow: 0 3px 10px rgba(15, 23, 42, .08);
+}
+.material-browser-body {
+  display: grid;
+  grid-template-columns: 138px minmax(0, 1fr);
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.date-list {
+  border-right: 1px solid #eef2f7;
+  background: #f8fafc;
+  padding: 10px;
+  overflow: auto;
+}
+.date-item {
+  width: 100%;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  padding: 10px;
+  text-align: left;
+  cursor: pointer;
+  font-family: inherit;
+}
+.date-item:hover,
+.date-item.active {
+  background: #eef2ff;
+}
+.date-item strong {
+  display: block;
+  color: #0f172a;
+  font-size: 13px;
+}
+.date-item span,
+.date-empty {
+  display: block;
+  margin-top: 4px;
+  color: #64748b;
+  font-size: 11px;
+}
+.material-list-pane {
+  display: flex;
+  flex-direction: column;
+  padding: 10px;
+  min-width: 0;
+  min-height: 0;
+}
+.material-list-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.material-list-toolbar span {
+  color: #94a3b8;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.material-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+}
+.material-row {
+  display: grid;
+  grid-template-columns: 42px 24px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: #fff;
+  padding: 9px;
+  text-align: left;
+  cursor: pointer;
+  font-family: inherit;
+  outline: 0;
+}
+.material-row:hover,
+.material-row.active {
+  border-color: #6366f1;
+  background: #f5f3ff;
+}
+.material-row.focused {
+  border-color: var(--material-color);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--material-color) 18%, transparent);
+}
+.material-row.assigned {
+  position: relative;
+}
+.material-row.used {
+  border-color: #86efac;
+  background: #f0fdf4;
+}
+.material-row.assigned::after {
+  content: "";
+  position: absolute;
+  right: -1px;
+  top: 10px;
+  bottom: 10px;
+  width: 4px;
+  border-radius: 999px;
+  background: var(--material-color);
+}
+.material-check {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 24px;
+  border-radius: 999px;
+  background: #f1f5f9;
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 700;
+}
+.material-row.active .material-check {
+  background: #6366f1;
+  color: #fff;
+}
+.material-row.focused .material-check {
+  background: var(--material-color);
+  color: #fff;
+}
+.material-row .el-icon {
+  color: #0e7490;
+  font-size: 18px;
+}
+.material-row-main {
+  min-width: 0;
+}
+.material-row-main strong,
+.material-row-main em {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.material-row-main strong {
+  color: #0f172a;
+  font-size: 13px;
+}
+.material-row-main em {
+  margin-top: 3px;
+  color: #64748b;
+  font-size: 11px;
+  font-style: normal;
+}
+.material-usage-note {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  margin-top: 3px;
+  color: #15803d;
+  font-size: 11px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.material-row-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+.material-row-actions button {
+  width: 30px;
+  height: 30px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #fff;
+  color: #64748b;
+  display: inline-grid;
+  place-items: center;
+  font-size: 15px;
+  cursor: pointer;
+  padding: 0;
+  transition: all .15s;
+}
+.material-row-actions button:hover {
+  border-color: #6366f1;
+  color: #4f46e5;
+  background: #eef2ff;
+}
+.material-assign-bar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border: 1px solid #bfdbfe;
+  border-radius: 12px;
+  background: #eff6ff;
+  color: #1d4ed8;
+  padding: 10px 12px;
+  font-size: 12.5px;
+  font-weight: 700;
+}
+.material-assign-bar.empty {
+  border-color: #fed7aa;
+  background: #fff7ed;
+  color: #9a3412;
+}
+.material-assign-bar div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+.focused-material-bar {
+  flex: 0 0 auto;
+  border: 1px solid #dbeafe;
+  border-radius: 12px;
+  background: #f8fbff;
+  color: #1d4ed8;
+  padding: 10px 12px;
+  font-size: 12.5px;
+  font-weight: 700;
+}
+.focused-material-bar.empty {
+  border-color: #e5e7eb;
+  background: #f8fafc;
+  color: #64748b;
+}
+.selected-material-name {
+  display: block;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #475569 !important;
+  font-size: 12px !important;
+}
+.material-picker {
+  display: grid;
+  gap: 10px;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  background: #fbfcff;
+  padding: 12px;
+}
+.material-picker-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.material-picker-head strong {
+  display: block;
+  color: #0f172a;
+  font-size: 14px;
+}
+.material-picker-head span {
+  display: block;
+  margin-top: 2px;
+  color: #64748b;
+  font-size: 12px;
+}
+.material-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 8px;
+  max-height: 190px;
+  overflow: auto;
+}
+.material-option {
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr);
+  grid-template-rows: auto auto;
+  gap: 3px 8px;
+  align-items: center;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: #fff;
+  padding: 9px;
+  text-align: left;
+  cursor: pointer;
+}
+.material-option:hover,
+.material-option.active {
+  border-color: #6366f1;
+  background: #f5f3ff;
+}
+.material-option .el-icon {
+  grid-row: 1 / span 2;
+  color: #6366f1;
+}
+.material-option strong,
+.material-option span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.material-option strong {
+  color: #0f172a;
+  font-size: 12.5px;
+}
+.material-option span,
+.material-empty {
+  color: #64748b;
+  font-size: 12px;
+}
 .batch-empty {
   padding: 18px;
   border: 1px dashed #fecaca;
@@ -1357,16 +2500,41 @@ watch(layoutBindings, (value) => applyLayoutBindings(value), { deep: true, immed
   color: #dc2626;
   font-size: 13px;
 }
-.batch-panel { display: flex; flex-direction: column; gap: 14px; }
-.batch-tools {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 12px;
-  align-items: end;
+.batch-panel {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
 }
-.batch-actions { display: flex; flex-direction: column; gap: 8px; padding-bottom: 1px; }
+.batch-material-hint {
+  border: 1px solid #bfdbfe;
+  border-radius: 10px;
+  background: #eff6ff;
+  color: #1d4ed8;
+  padding: 10px 12px;
+  font-size: 12.5px;
+  font-weight: 700;
+}
+.batch-material-hint.empty {
+  border-color: #fed7aa;
+  background: #fff7ed;
+  color: #9a3412;
+}
+.batch-quick-tools {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+  flex: 0 0 auto;
+  padding: 10px 12px;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  background: #fbfcff;
+}
 .duplicate-switch {
-  height: 36px;
+  height: 38px;
   padding: 0 10px;
   border-radius: 10px;
   background: #fff7ed;
@@ -1382,7 +2550,7 @@ watch(layoutBindings, (value) => applyLayoutBindings(value), { deep: true, immed
 .duplicate-switch input { accent-color: #f97316; }
 .time-apply-group { display: flex; gap: 6px; align-items: center; }
 .unify-time-picker {
-  width: 120px;
+  width: 126px;
 }
 :deep(.unify-time-picker .el-input__wrapper) {
   box-shadow: 0 0 0 1px #e5e7eb inset;
@@ -1413,27 +2581,134 @@ watch(layoutBindings, (value) => applyLayoutBindings(value), { deep: true, immed
   border: 1px solid #e5e7eb;
   border-radius: 14px;
   overflow: auto;
-  max-height: 360px;
+  flex: 1 1 auto;
+  min-height: 360px;
   background: #fff;
 }
-.batch-table { width: 100%; min-width: 760px; border-collapse: collapse; font-size: 13px; }
+.batch-table { width: 100%; min-width: 920px; border-collapse: collapse; font-size: 13px; table-layout: fixed; }
 .batch-table th {
   position: sticky;
   top: 0;
   z-index: 1;
-  padding: 12px 14px;
+  padding: 12px 10px;
   text-align: left;
   background: #f8fafc;
   color: #64748b;
   font-size: 12px;
   border-bottom: 1px solid #e5e7eb;
 }
-.batch-table td { padding: 11px 14px; border-bottom: 1px solid #f1f5f9; vertical-align: middle; }
+.batch-table td { padding: 10px; border-bottom: 1px solid #f1f5f9; vertical-align: middle; }
 .batch-table tr.filled td { background: #f0fdf4; }
 .batch-table tr.duplicate td { background: #fff1f2; }
 .batch-table tr.duplicate .mini-input.link { border-color: #fb7185; box-shadow: 0 0 0 3px rgba(244,63,94,.12); }
 .batch-table td strong { display: block; color: #0f172a; font-size: 13px; margin-bottom: 3px; }
 .batch-table td span { color: #94a3b8; font-size: 11px; }
+.assignment-board {
+  flex: 1 1 auto;
+  min-height: 420px;
+  overflow: auto;
+  border: 1px solid #e5e7eb;
+  border-radius: 14px;
+  background: #fff;
+}
+.assignment-head,
+.assignment-row {
+  display: grid;
+  grid-template-columns: 54px minmax(132px, .8fr) 104px minmax(210px, 1.25fr) minmax(280px, 1.7fr) 82px 118px;
+  gap: 10px;
+  align-items: center;
+  min-width: 1040px;
+}
+.assignment-head {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  padding: 12px 14px;
+  border-bottom: 1px solid #e5e7eb;
+  background: #f8fafc;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 700;
+}
+.assignment-row {
+  position: relative;
+  padding: 12px 14px 12px 22px;
+  border-bottom: 1px solid #f1f5f9;
+  background: #fff;
+}
+.assignment-row.linked {
+  background: #f0fdf4;
+}
+.assignment-row.duplicate {
+  background: #fff1f2;
+}
+.assignment-row.disabled {
+  opacity: .56;
+}
+.assignment-link-line {
+  position: absolute;
+  left: 0;
+  top: 14px;
+  bottom: 14px;
+  width: 5px;
+  border-radius: 0 999px 999px 0;
+}
+.assignment-link-line::after {
+  content: "";
+  position: absolute;
+  left: -18px;
+  top: 50%;
+  width: 18px;
+  height: 2px;
+  transform: translateY(-50%);
+  background: inherit;
+  opacity: .9;
+}
+.assignment-enable {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.assignment-enable input {
+  width: 16px;
+  height: 16px;
+  accent-color: #2563eb;
+}
+.assignment-account strong,
+.assignment-material strong {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #0f172a;
+  font-size: 13px;
+}
+.assignment-account span,
+.assignment-material span {
+  display: block;
+  margin-top: 3px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #64748b;
+  font-size: 11px;
+}
+.assignment-time {
+  text-align: center;
+  font-weight: 700;
+}
+.assignment-actions {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex-wrap: wrap;
+}
+.assignment-actions .row-link:disabled {
+  opacity: .45;
+  cursor: not-allowed;
+}
 .duplicate-tag,
 .ok-tag,
 .muted-tag {
@@ -1463,7 +2738,7 @@ watch(layoutBindings, (value) => applyLayoutBindings(value), { deep: true, immed
   height: 36px;
   border: 1px solid #e5e7eb;
   border-radius: 9px;
-  padding: 0 10px;
+  padding: 0 9px;
   outline: 0;
   background: #fff;
   color: #0f172a;
@@ -1471,7 +2746,7 @@ watch(layoutBindings, (value) => applyLayoutBindings(value), { deep: true, immed
   font-size: 13px;
 }
 .mini-input:focus { border-color: #6366f1; box-shadow: 0 0 0 3px rgba(99,102,241,.12); }
-.mini-input.link { min-width: 280px; }
+.mini-input.link { min-width: 0; }
 .batch-tip {
   padding: 10px 12px;
   border-radius: 10px;
@@ -1493,6 +2768,7 @@ watch(layoutBindings, (value) => applyLayoutBindings(value), { deep: true, immed
 :deep(.inline-select .el-input__inner) { font-size: 13.5px; }
 
 .dialog-foot {
+  flex: 0 0 auto;
   padding: 16px 24px; display: flex; justify-content: flex-end; gap: 10px;
   border-top: 1px solid #f1f5f9; background: #fafbfc;
 }
@@ -1509,6 +2785,15 @@ watch(layoutBindings, (value) => applyLayoutBindings(value), { deep: true, immed
   .kpi-row { grid-template-columns: 1fr 1fr; }
   .dialog-card.large { width: calc(100vw - 32px); }
   .form-row.two { grid-template-columns: 1fr; }
+  .distribute-workbench { grid-template-columns: 1fr; }
+  .material-browser-body { grid-template-columns: 1fr; }
+  .date-list {
+    display: flex;
+    gap: 8px;
+    border-right: 0;
+    border-bottom: 1px solid #eef2f7;
+  }
+  .date-item { min-width: 96px; }
   .city-grid { grid-template-columns: 1fr; }
   .detail-kpis { grid-template-columns: repeat(2, 1fr); }
 }

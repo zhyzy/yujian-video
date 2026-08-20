@@ -89,6 +89,22 @@
           <option v-for="owner in owners" :key="owner" :value="owner">{{ owner }}</option>
         </select>
       </div>
+      <div class="filter-group week-tools">
+        <button class="ghost-btn" @click="moveRange(-1)"><el-icon><ArrowLeft /></el-icon>前一周</button>
+        <div class="date-box">
+          <el-icon><Calendar /></el-icon>
+          <el-date-picker
+            v-model="startDate"
+            type="date"
+            value-format="YYYY-MM-DD"
+            format="YYYY-MM-DD"
+            class="date-picker"
+            @change="loadAll"
+          />
+        </div>
+        <button class="ghost-btn" @click="moveRange(1)">后一周<el-icon><ArrowRight /></el-icon></button>
+        <button class="ghost-btn" @click="resetToday">今天</button>
+      </div>
       <button class="ledger-btn" @click="openLedgerForToday"><el-icon><Tickets /></el-icon>打开今日台账</button>
     </section>
     </template>
@@ -180,6 +196,13 @@
     </section>
     </template>
     </ConfigurablePageRenderer>
+
+    <div class="floating-actions">
+      <div class="floating-action-row">
+        <button class="float-secondary" @click="loadAll"><el-icon><Refresh /></el-icon>刷新</button>
+        <button class="float-main" @click="openCreateAccount"><el-icon><Plus /></el-icon>新增账号</button>
+      </div>
+    </div>
 
     <div class="dialog-overlay" v-if="accountDialogVisible" @click.self="closeAccountDialog">
       <div class="dialog-card">
@@ -631,6 +654,10 @@ onMounted(loadAll)
 .plan-page .summary-card.danger strong { color: #dc2626; }
 .plan-page .toolbar { display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap; background: #fff; border: 1px solid #ececf1; border-radius: 14px; padding: 14px 16px; }
 .plan-page .filter-group { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.plan-page .filter-group.week-tools { margin-left: auto; justify-content: flex-end; }
+.plan-page .filter-group.week-tools .ghost-btn { height: 34px; padding: 0 10px; font-size: 12px; font-weight: 800; }
+.plan-page .filter-group.week-tools .date-box { height: 34px; padding: 0 10px; }
+.plan-page .filter-group.week-tools .date-picker { width: 118px; }
 .plan-page .filter-group > span { color: #64748b; font-size: 13px; font-weight: 800; }
 .plan-page .chip { height: 32px; padding: 0 12px; border: 1px solid #e5e7eb; background: #fff; color: #475569; border-radius: 8px; font-weight: 700; }
 .plan-page .chip.active { background: #eef2ff; border-color: #c7d2fe; color: #4338ca; }

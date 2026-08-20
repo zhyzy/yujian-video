@@ -25,6 +25,12 @@
     <template #toolbar>
     <!-- ===== SUMMARY STRIP ===== -->
     <div class="summary-strip">
+      <div class="inline-page-tools city-list-search-tools">
+        <div class="search">
+          <IconFont name="search" :fallback="Search" />
+          <input v-model="keyword" placeholder="搜索城市 / 对接人..." />
+        </div>
+      </div>
       <div class="s-card">
         <div class="s-label">接入城市</div>
         <div class="s-value">{{ cities.length }}</div>
@@ -113,7 +119,7 @@
             <div class="meta-ic ic-purple"><IconFont name="materialList" :fallback="FolderOpened" /></div>
             <div class="meta-content">
               <span class="meta-key">网盘目录</span>
-              <strong class="meta-value mono path">{{ c.netdisk_folder || '未配置' }}</strong>
+              <strong class="meta-value mono path">{{ c.material_folder_path || c.netdisk_folder || '未配置' }}</strong>
             </div>
           </div>
         </div>
@@ -122,6 +128,7 @@
         <div class="card-foot">
           <span class="updated-tag">{{ (c.contact_name || c.kuaishou_name) ? '已配置' : '待完善' }}</span>
           <div class="action-btns">
+            <button class="mini-btn" :disabled="!c.material_folder_id" @click="copyFolderShare(c)"><el-icon><Link /></el-icon>分享目录</button>
             <button class="mini-btn" @click="editRow(c)"><el-icon><EditPen /></el-icon>编辑</button>
           </div>
         </div>
@@ -137,6 +144,12 @@
     </div>
     </template>
     </ConfigurablePageRenderer>
+
+    <div class="floating-actions">
+      <button class="float-main" @click="openCreate">
+        <IconFont name="add" :fallback="Plus" />新增城市
+      </button>
+    </div>
 
     <!-- ===== DIALOG ===== -->
     <div class="dialog-overlay" v-if="showDialog" @click.self="closeDialog">
@@ -193,7 +206,22 @@
 
           <div class="form-field">
             <label>网盘目录</label>
-            <input v-model="form.netdisk_folder" class="text-input" placeholder="/城市/西安/2026-06/" />
+            <el-select
+              v-model="form.material_folder_id"
+              placeholder="选择该城市素材目录"
+              clearable
+              filterable
+              class="inline-select"
+              @change="onFolderChange"
+            >
+              <el-option
+                v-for="folder in bindableFolders"
+                :key="folder.id"
+                :label="folder.path"
+                :value="folder.id"
+              />
+            </el-select>
+            <span class="field-tip">城市端将展示该目录路径；分享链接只展示该目录及其子目录素材。</span>
           </div>
         </div>
 
@@ -214,8 +242,8 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import IconFont from '@/components/IconFont.vue'
-import { Plus, Search, EditPen, Close, Delete, UserFilled, Phone, FolderOpened, Location, Loading } from '@element-plus/icons-vue'
-import { createCity, deleteCity, getAccounts, getCities, updateCity } from '@/api'
+import { Plus, Search, EditPen, Close, Delete, UserFilled, Phone, FolderOpened, Location, Loading, Link } from '@element-plus/icons-vue'
+import { createCity, createMaterialFolderShareToken, deleteCity, getAccounts, getCities, getMaterialFolderTree, updateCity } from '@/api'
 import ConfigurablePageRenderer from '@/layout-builder/ConfigurablePageRenderer.vue'
 import { useLayoutBindings } from '@/layout-builder/layoutBindings'
 import { layoutModuleCatalog } from '@/layout-builder/moduleCatalog'
@@ -232,6 +260,7 @@ const { pageSearchKeyword } = usePageSearch()
 const filter = ref('all')
 const cities = ref([])
 const accounts = ref([])
+const folderTree = ref(null)
 
 watch(pageSearchKeyword, value => { keyword.value = value }, { immediate: true })
 
@@ -245,7 +274,7 @@ const applyLayoutBindings = (bindings = {}) => {
 const emptyForm = () => ({
   id: '', name: '', contact_name: '', contact_info: '',
   kuaishou_account_id: '', weixin_account_id: '',
-  netdisk_folder: '', status: 'active'
+  netdisk_folder: '', material_folder_id: '', material_folder_path: '', status: 'active'
 })
 const form = reactive(emptyForm())
 
@@ -256,6 +285,13 @@ const statusClass = (s) => ({ active: 'status-active', paused: 'status-warn', no
 const activeCount = computed(() => cities.value.filter(c => c.status === 'active').length)
 const pendingCount = computed(() => cities.value.filter(c => c.status === 'not_started').length)
 const pausedCount = computed(() => cities.value.filter(c => c.status === 'paused').length)
+const flattenFolders = (node, list = []) => {
+  if (!node) return list
+  list.push(node)
+  ;(Array.isArray(node.children) ? node.children : []).forEach(child => flattenFolders(child, list))
+  return list
+}
+const bindableFolders = computed(() => flattenFolders(folderTree.value, []).filter(folder => !['folder_workspace_root', 'folder_root', 'folder_legacy'].includes(folder.id)))
 
 const filteredCities = computed(() => {
   let list = cities.value
@@ -296,6 +332,38 @@ const loadAccounts = async () => {
   }
 }
 
+const loadFolders = async () => {
+  try {
+    folderTree.value = await getMaterialFolderTree()
+  } catch {
+    folderTree.value = null
+  }
+}
+
+const onFolderChange = (folderId) => {
+  const folder = bindableFolders.value.find(item => item.id === folderId)
+  form.material_folder_path = folder?.path || ''
+  form.netdisk_folder = folder?.path || ''
+}
+
+const copyText = async (text) => {
+  await navigator.clipboard.writeText(text)
+}
+
+const copyFolderShare = async (city) => {
+  if (!city.material_folder_id) return ElMessage.warning('请先给该城市绑定网盘目录')
+  try {
+    const { shareUrl } = await createMaterialFolderShareToken({
+      folder_id: city.material_folder_id,
+      title: `${city.name}素材目录`
+    })
+    await copyText(new URL(shareUrl, window.location.origin).toString())
+    ElMessage.success('目录分享链接已复制')
+  } catch (e) {
+    ElMessage.error(e?.response?.data?.message || e?.message || '分享链接生成失败')
+  }
+}
+
 const openCreate = () => {
   editing.value = false
   Object.assign(form, emptyForm())
@@ -312,8 +380,12 @@ const saveForm = async () => {
   if (!form.name) { ElMessage.warning('请输入城市名称'); return }
   saving.value = true
   try {
-    if (editing.value) await updateCity(form.id, form)
-    else await createCity(form)
+    const payload = {
+      ...form,
+      netdisk_folder: form.material_folder_path || form.netdisk_folder
+    }
+    if (editing.value) await updateCity(form.id, payload)
+    else await createCity(payload)
     ElMessage.success('保存成功')
     showDialog.value = false
     loadData()
@@ -345,7 +417,7 @@ const removeRow = async (row) => {
 
 watch(layoutBindings, (value) => applyLayoutBindings(value), { deep: true, immediate: true })
 
-onMounted(() => { loadAccounts(); loadData() })
+onMounted(() => { loadAccounts(); loadFolders(); loadData() })
 </script>
 
 <style scoped>
@@ -404,6 +476,7 @@ onMounted(() => { loadAccounts(); loadData() })
   border: 1px solid #eceff5; border-radius: 16px;
   margin-bottom: 16px; flex-wrap: wrap;
 }
+.city-list-search-tools { flex: 1 0 100%; justify-content: flex-end; }
 .s-card {
   padding: 14px 20px; border-radius: 12px;
   background: linear-gradient(135deg, #eef2ff 0%, #fff 100%);
@@ -536,6 +609,8 @@ onMounted(() => { loadAccounts(); loadData() })
   transition: all 0.15s; font-family: inherit;
 }
 .mini-btn:hover { border-color: #6366f1; color: #6366f1; background: #f5f3ff; }
+.mini-btn:disabled { opacity: .45; cursor: not-allowed; background: #f8fafc; }
+.mini-btn:disabled:hover { border-color: #e5e7eb; color: #374151; }
 
 /* ===== EMPTY ===== */
 .empty-state {
@@ -588,6 +663,7 @@ onMounted(() => { loadAccounts(); loadData() })
 .form-field { display: flex; flex-direction: column; gap: 8px; }
 .form-field label { font-size: 12.5px; color: #374151; font-weight: 500; display: flex; align-items: center; gap: 3px; }
 .form-field label em { color: #ef4444; font-style: normal; font-size: 13px; }
+.field-tip { color: #64748b; font-size: 12px; line-height: 1.45; }
 
 .text-input {
   height: 42px; padding: 0 14px; border-radius: 10px; border: 1.5px solid #e5e7eb;

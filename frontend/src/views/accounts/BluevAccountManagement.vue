@@ -1,17 +1,5 @@
 <template>
   <div class="bluev-page">
-    <div class="page-head">
-      <div>
-        <div class="eyebrow"><span class="dot"></span>账号管理 · 城市蓝V</div>
-        <h1>城市蓝V账号注册</h1>
-        <p>管理各城市蓝V账号的注册信息，支持自定义字段配置。</p>
-      </div>
-      <div class="head-actions">
-        <button class="btn-secondary" @click="openFieldModal"><el-icon><Tools /></el-icon>字段配置</button>
-        <button class="btn-primary" @click="openEditModal"><el-icon><Plus /></el-icon>新增注册</button>
-      </div>
-    </div>
-
     <section class="filter-card">
       <div class="filter-row">
         <div class="filter-item">
@@ -89,6 +77,13 @@
         />
       </div>
     </section>
+
+    <div class="floating-actions">
+      <div class="floating-action-row">
+        <button class="float-secondary" @click="openFieldModal"><el-icon><Tools /></el-icon>字段配置</button>
+        <button class="float-main" @click="openEditModal"><el-icon><Plus /></el-icon>新增注册</button>
+      </div>
+    </div>
 
     <el-dialog v-model="editModalVisible" :title="editingId ? '编辑注册' : '新增注册'" width="650px" class="edit-dialog">
       <el-form :model="editForm" label-width="120px" class="edit-form">

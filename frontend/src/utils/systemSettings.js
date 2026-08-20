@@ -14,6 +14,30 @@ export const defaultSystemSettings = {
     roleLabel: '',
     avatarUrl: ''
   },
+  storage: {
+    provider: 'cos',
+    bucket: '',
+    region: 'ap-shanghai',
+    secretId: '',
+    secretKey: '',
+    cdnDomain: '',
+    domain: '',
+    uploadPrefix: 'materials/',
+    previewExpires: 600,
+    proxyPreview: true,
+    hasSecretKey: false
+  },
+  rawStorage: {
+    provider: 'upyun',
+    service: '',
+    operator: '',
+    password: '',
+    domain: '',
+    uploadPrefix: 'raw-materials/',
+    formApiHost: 'https://v0.api.upyun.com',
+    previewExpires: 600,
+    hasPassword: false
+  },
   appearance: {
     dashboardBgUrl: '',
     dashboardBgPreset: 'gradient1',

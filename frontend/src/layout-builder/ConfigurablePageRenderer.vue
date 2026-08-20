@@ -127,7 +127,20 @@ const layout = computed(() => {
   }
 })
 
-const visibleModules = computed(() => layout.value.modules.filter((module) => module.visible !== false))
+const hiddenHeadPages = new Set([
+  'publishCalendar',
+  'publishList',
+  'publishLedger',
+  'cityBoard',
+  'cityList',
+  'cityAccounts',
+  'otherAccounts'
+])
+const visibleModules = computed(() => layout.value.modules.filter((module) => {
+  if (module.visible === false) return false
+  if (module.key === 'page-head' && hiddenHeadPages.has(props.pageKey)) return false
+  return true
+}))
 const safeSpan = (span) => Math.min(12, Math.max(3, Number(span || 6)))
 const safeHeight = (height) => {
   const value = Number(height || 0)

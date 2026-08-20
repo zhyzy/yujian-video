@@ -21,6 +21,12 @@
 
     <template #toolbar>
     <div class="summary-row">
+      <div class="inline-page-tools other-type-tools">
+        <div class="chip-group">
+          <button class="chip" :class="{active: filter.type === ''}" @click="filter.type = ''">全部</button>
+          <button v-for="t in typeList" :key="t" class="chip" :class="{active: filter.type === t}" @click="filter.type = t">{{ t }}</button>
+        </div>
+      </div>
       <div class="sum-card"><div class="sum-ic ic-indigo"><el-icon><Collection /></el-icon></div><div class="sum-main"><span class="sum-label">账号总数</span><strong class="sum-value">{{ accounts.length }}</strong></div></div>
       <div class="sum-card"><div class="sum-ic ic-green"><el-icon><CircleCheckFilled /></el-icon></div><div class="sum-main"><span class="sum-label">活跃</span><strong class="sum-value">{{ activeCount }}</strong></div></div>
       <div class="sum-card"><div class="sum-ic ic-amber"><el-icon><Clock /></el-icon></div><div class="sum-main"><span class="sum-label">待处理</span><strong class="sum-value">{{ pendingCount }}</strong></div></div>
@@ -57,6 +63,10 @@
     </div>
     </template>
     </ConfigurablePageRenderer>
+
+    <div class="floating-actions">
+      <button class="float-main" @click="openDialog"><el-icon><Plus /></el-icon>新增账号</button>
+    </div>
 
     <div class="dialog-overlay" v-if="showDialog" @click.self="closeDialog">
       <div class="dialog-card wide">
@@ -265,6 +275,7 @@ watch(layoutBindings, (value) => applyLayoutBindings(value), { deep: true, immed
 .btn-ghost:hover { border-color: #6366f1; color: #6366f1; background: #f5f3ff; }
 
 .summary-row { display: flex; align-items: center; gap: 12px; padding: 14px 18px; background: #fff; border: 1px solid #eceff5; border-radius: 14px; margin-bottom: 18px; flex-wrap: wrap; }
+.other-type-tools { flex: 1 0 100%; justify-content: flex-end; }
 .sum-card { display: flex; align-items: center; gap: 10px; padding: 8px 14px 8px 10px; border-radius: 10px; background: linear-gradient(135deg, #f5f3ff, #fff); border: 1px solid #ede9fe; }
 .sum-ic { width: 36px; height: 36px; border-radius: 10px; display: grid; place-items: center; color: #fff; }
 .sum-ic .el-icon { font-size: 16px; }

@@ -1,17 +1,5 @@
 <template>
   <div class="distribution-page">
-    <div class="page-head">
-      <div>
-        <div class="eyebrow"><span class="dot"></span>发布管理 · 城市下发</div>
-        <h1>下发记录</h1>
-        <p>管理总部下发给城市账号的发布任务，查看下发状态和执行情况。</p>
-      </div>
-      <div class="head-actions">
-        <button class="primary-btn" @click="loadList"><el-icon><Refresh /></el-icon>刷新</button>
-        <button class="primary-btn" @click="openCreate"><el-icon><Plus /></el-icon>新增下发</button>
-      </div>
-    </div>
-
     <section class="filter-panel">
       <div class="filter-row">
         <div class="filter-item">
@@ -56,7 +44,10 @@
           <el-select v-model="filters.status" class="filter-input">
             <el-option label="全部" value="" />
             <el-option label="待发布" value="pending" />
+            <el-option label="已下载" value="downloaded" />
+            <el-option label="发布中" value="publishing" />
             <el-option label="已填报" value="published" />
+            <el-option label="异常" value="failed" />
             <el-option label="超期" value="overdue" />
           </el-select>
         </div>
@@ -141,9 +132,14 @@
         </el-table-column>
         <el-table-column label="状态" min-width="100" align="center">
           <template #default="{ row }">
-            <el-tag :type="statusType(row.status)" effect="light">
-              {{ statusLabel(row.status) }}
+            <el-tag :type="statusType(row.display_status || row.status)" effect="light">
+              {{ statusLabel(row.display_status || row.status) }}
             </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="异常原因" min-width="180" show-overflow-tooltip>
+          <template #default="{ row }">
+            <span>{{ row.exception_reason || row.failed_reason || '-' }}</span>
           </template>
         </el-table-column>
         <el-table-column label="下载状态" min-width="145" align="center">
@@ -157,11 +153,14 @@
             </div>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="140" fixed="right" align="center">
+        <el-table-column label="操作" width="190" fixed="right" align="center">
           <template #default="{ row }">
             <el-button type="primary" link size="small" @click="openEdit(row)">
               <el-icon><Edit /></el-icon>
               编辑
+            </el-button>
+            <el-button v-if="row.status !== 'published'" type="warning" link size="small" @click="handleRemind(row)">
+              提醒
             </el-button>
             <el-button type="danger" link size="small" @click="handleDelete(row)">
               <el-icon><Delete /></el-icon>
@@ -186,6 +185,13 @@
         />
       </div>
     </section>
+
+    <div class="floating-actions">
+      <div class="floating-action-row">
+        <button class="float-secondary" @click="loadList"><el-icon><Refresh /></el-icon>刷新</button>
+        <button class="float-main" @click="openCreate"><el-icon><Plus /></el-icon>新增下发</button>
+      </div>
+    </div>
 
     <el-dialog
       v-model="dialogVisible"
@@ -263,8 +269,11 @@
         </el-form-item>
         <el-form-item label="状态" prop="status">
           <el-select v-model="form.status" placeholder="请选择状态" style="width: 200px">
-            <el-option label="待发布" value="pending" />
+            <el-option label="待下载" value="distributed" />
+            <el-option label="已下载" value="downloaded" />
+            <el-option label="发布中" value="publishing" />
             <el-option label="已填报" value="published" />
+            <el-option label="异常" value="failed" />
           </el-select>
         </el-form-item>
       </el-form>
@@ -296,7 +305,8 @@ import {
   updateCityDistribution,
   deleteCityDistribution,
   getCities,
-  getAccounts
+  getAccounts,
+  remindCityDistribution
 } from '@/api'
 
 const loading = ref(false)
@@ -345,7 +355,11 @@ const platformColor = (p) => platforms.find(item => item.key === p)?.color || '#
 const statusLabel = (status) => {
   const map = {
     pending: '待发布',
+    distributed: '待下载',
+    downloaded: '已下载',
+    publishing: '发布中',
     published: '已填报',
+    failed: '异常',
     overdue: '超期'
   }
   return map[status] || status || '未知'
@@ -354,7 +368,11 @@ const statusLabel = (status) => {
 const statusType = (status) => {
   const map = {
     pending: 'warning',
+    distributed: 'warning',
+    downloaded: 'primary',
+    publishing: 'primary',
     published: 'success',
+    failed: 'danger',
     overdue: 'danger'
   }
   return map[status] || 'info'
@@ -383,7 +401,7 @@ const emptyForm = () => ({
   video_title: '',
   video_url: '',
   publish_requirement: '',
-  status: 'pending'
+  status: 'distributed'
 })
 
 const form = reactive(emptyForm())
@@ -454,13 +472,10 @@ const loadList = async () => {
     const res = await getCityDistributions(params)
     const list = res.list || res || []
     const today = dayjs().format('YYYY-MM-DD')
-    
     tableData.value = list.map(item => {
-      let status = item.status || 'pending'
-      if (status === 'pending' && item.date && item.date < today) {
-        status = 'overdue'
-      }
-      return { ...item, status }
+      const rawStatus = item.status === 'pending' ? 'distributed' : (item.status || 'distributed')
+      const displayStatus = item.display_status || (rawStatus !== 'published' && rawStatus !== 'failed' && item.date && item.date < today ? 'overdue' : rawStatus)
+      return { ...item, status: rawStatus, display_status: displayStatus }
     })
     
     pagination.total = res.total || list.length
@@ -521,7 +536,7 @@ const openEdit = (row) => {
     video_title: row.video_title || '',
     video_url: row.video_url || row.material_url || '',
     publish_requirement: row.publish_requirement || row.remark || '',
-    status: row.status === 'overdue' ? 'pending' : (row.status || 'pending')
+    status: row.status === 'pending' ? 'distributed' : (row.status || 'distributed')
   })
   dialogVisible.value = true
 }
@@ -574,6 +589,29 @@ const handleDelete = async (row) => {
     await loadList()
   } catch (e) {
     ElMessage.error('删除失败：' + e.message)
+  }
+}
+
+const handleRemind = async (row) => {
+  try {
+    await ElMessageBox.confirm(
+      `确定提醒「${row.city_name || '城市'}」处理「${row.video_title || '该任务'}」吗？`,
+      '发送提醒',
+      {
+        confirmButtonText: '提醒',
+        cancelButtonText: '取消',
+        type: 'warning'
+      }
+    )
+  } catch {
+    return
+  }
+  try {
+    await remindCityDistribution(row.id)
+    ElMessage.success('已发送提醒')
+    await loadList()
+  } catch (e) {
+    ElMessage.error('提醒失败：' + (e?.response?.data?.message || e.message))
   }
 }
 

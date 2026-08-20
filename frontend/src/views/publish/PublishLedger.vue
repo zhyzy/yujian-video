@@ -59,6 +59,17 @@
           <p>{{ isCityUser ? '按你的账号核对当天发布情况。' : '按账号和平台核对当天发布情况。' }}</p>
         </div>
         <div class="filters">
+          <div class="date-box compact">
+            <el-icon><Calendar /></el-icon>
+            <el-date-picker
+              v-model="selectedDate"
+              type="date"
+              value-format="YYYY-MM-DD"
+              format="YYYY-MM-DD"
+              class="date-picker"
+              @change="loadAll"
+            />
+          </div>
           <button class="chip" :class="{ active: statusFilter === '' }" @click="statusFilter = ''">全部</button>
           <button class="chip" :class="{ active: statusFilter === 'published' }" @click="statusFilter = 'published'">已发布</button>
           <button class="chip" :class="{ active: statusFilter === 'pending' }" @click="statusFilter = 'pending'">待发布</button>
@@ -137,6 +148,13 @@
     </section>
     </template>
     </ConfigurablePageRenderer>
+
+    <div class="floating-actions">
+      <div class="floating-action-row">
+        <button class="float-secondary" @click="loadAll"><el-icon><Refresh /></el-icon>刷新</button>
+        <button class="float-main" @click="openCreate"><el-icon><Plus /></el-icon>登记发布</button>
+      </div>
+    </div>
 
     <div class="dialog-overlay" v-if="dialogVisible" @click.self="closeDialog">
       <div class="dialog-card">
@@ -675,7 +693,9 @@ h1 { margin-top: 8px; font-size: 28px; color: #0f172a; }
 .page-head p, .panel-head p, .dialog-head p { margin-top: 6px; color: #64748b; font-size: 13px; }
 .head-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
 .date-box { height: 40px; display: inline-flex; align-items: center; gap: 8px; padding: 0 12px; border-radius: 10px; background: #fff; border: 1px solid #e5e7eb; color: #64748b; }
+.date-box.compact { height: 36px; padding: 0 10px; }
 :deep(.date-picker) { width: 134px; }
+.date-box.compact :deep(.date-picker) { width: 118px; }
 :deep(.date-picker .el-input__wrapper) { box-shadow: none; background: transparent; padding: 0; }
 .ghost-btn, .primary-btn, .mini-btn, .chip, .icon-close { font-family: inherit; cursor: pointer; }
 .ghost-btn, .primary-btn { height: 40px; border-radius: 10px; padding: 0 16px; display: inline-flex; align-items: center; gap: 6px; font-weight: 700; }

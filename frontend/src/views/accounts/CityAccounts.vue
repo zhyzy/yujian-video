@@ -11,12 +11,7 @@
         <p class="subtitle">按城市管理各平台分发账号，支持自定义平台与增删改查</p>
       </div>
       <div class="hero-right">
-        <div class="chip-group">
-          <button class="chip" :class="{active: filter.status === ''}" @click="filter.status = ''">全部</button>
-          <button class="chip" :class="{active: filter.status === 'active'}" @click="filter.status = 'active'">活跃</button>
-          <button class="chip" :class="{active: filter.status === 'pending'}" @click="filter.status = 'pending'">待完善</button>
-          <button class="chip" :class="{active: filter.status === 'paused'}" @click="filter.status = 'paused'">已暂停</button>
-        </div>
+        <button v-if="selectedCity" class="btn-ghost" @click="addAccount(selectedCity)"><el-icon><Plus /></el-icon>新增账号</button>
         <button class="btn-primary" @click="openCityDialog"><el-icon><Plus /></el-icon>新增城市</button>
       </div>
     </div>
@@ -41,6 +36,15 @@
         <div class="sum-ic ic-pink"><el-icon><Warning /></el-icon></div>
         <div class="sum-main"><span class="sum-label">待完善</span><strong class="sum-value">{{ needFix }}</strong></div>
       </div>
+      <div class="status-filter">
+        <span class="filter-label">账号状态</span>
+        <div class="chip-group compact">
+          <button class="chip" :class="{active: filter.status === ''}" @click="filter.status = ''">全部</button>
+          <button class="chip" :class="{active: filter.status === 'active'}" @click="filter.status = 'active'">活跃</button>
+          <button class="chip" :class="{active: filter.status === 'pending'}" @click="filter.status = 'pending'">待完善</button>
+          <button class="chip" :class="{active: filter.status === 'paused'}" @click="filter.status = 'paused'">已暂停</button>
+        </div>
+      </div>
       <div class="platforms-inline">
         <span>常用平台：</span>
         <span v-for="p in platformOptions" :key="p.key" class="p-chip" :class="'p-'+p.key">
@@ -52,70 +56,130 @@
     </template>
 
     <template #account-table>
-    <!-- City cards -->
-    <div v-if="filteredCities.length" class="city-grid">
-      <div v-for="city in filteredCities" :key="city.id" class="city-card">
-        <div class="city-head">
-          <div class="city-hero">
-            <div class="city-avatar" :style="{background: colorFromName(city.name)}">{{ (city.name || '?').slice(0,1) }}</div>
-            <div class="city-info">
-              <h3 class="city-name">{{ city.name }}</h3>
-              <div class="city-meta">
-                <span v-if="city.contact" class="meta-item"><el-icon><UserFilled /></el-icon>{{ city.contact }}</span>
-                <span v-if="city.phone" class="meta-item"><el-icon><Phone /></el-icon>{{ city.phone }}</span>
-                <span v-if="city.remark" class="meta-item muted">{{ city.remark }}</span>
-              </div>
-            </div>
-          </div>
-          <div class="city-status">
-            <span class="status-pill" :class="'st-'+city.status">{{ statusLabel(city.status) }}</span>
-            <div class="actions">
-              <button class="icon-btn" @click="editCity(city)"><el-icon><EditPen /></el-icon></button>
-              <button class="icon-btn" @click="removeCity(city)"><el-icon><Delete /></el-icon></button>
-            </div>
-          </div>
-        </div>
-
-        <div class="accounts">
-          <div class="account-row" v-for="acc in city.accounts" :key="acc.id">
-            <div class="account-main">
-              <div class="account-platform" :class="'p-'+(customPlatformColor(acc.platform))">
-                <IconFont :platform="acc.platform" />
-                <span>{{ acc.platform_label || acc.platform }}</span>
-              </div>
-              <div class="account-info">
-                <strong class="account-name">{{ acc.name }}</strong>
-                <a v-if="acc.url" class="account-link" :href="acc.url" target="_blank" rel="noopener">{{ acc.url }}</a>
-                <span class="account-link placeholder" v-else>未填写账号链接</span>
-              </div>
-            </div>
-            <div class="account-right">
-              <span class="status-dot" :class="acc.status === 'active' ? 'on' : 'off'"></span>
-              <button v-if="acc.qrcode_url" class="mini-btn" title="查看二维码" @click="openQrcode(acc)"><el-icon><Picture /></el-icon></button>
-              <button class="mini-btn" @click="editAccount(city, acc)"><el-icon><EditPen /></el-icon></button>
-              <button class="mini-btn danger" @click="removeAccount(city, acc)"><el-icon><Delete /></el-icon></button>
-            </div>
-          </div>
-          <div class="empty-account" v-if="!city.accounts.length">
-            <span>暂未绑定账号</span>
-            <button class="link-btn" @click="addAccount(city)">+ 立即添加</button>
-          </div>
-          <button class="add-account-row" @click="addAccount(city)">
-            <el-icon><Plus /></el-icon>为该城市新增账号
+    <div class="table-panel">
+      <div class="table-filter-row">
+        <div class="city-filter-bar">
+          <button class="chip" :class="{active: filter.cityId === ''}" @click="selectCity('')">
+            全部
+            <span class="chip-count">{{ totalAccounts }}</span>
+          </button>
+          <button
+            v-for="city in cities"
+            :key="city.id"
+            class="chip"
+            :class="{active: filter.cityId === city.id}"
+            @click="selectCity(city.id)"
+          >
+            {{ city.name }}
+            <span class="chip-count">{{ city.accounts?.length || 0 }}</span>
           </button>
         </div>
       </div>
-    </div>
-
-    <div v-else class="empty-state">
-      <div class="empty-ic"><el-icon><LocationFilled /></el-icon></div>
-      <div class="empty-txt">
-        <strong>暂无城市数据</strong>
-        <span>点击右上角「新增城市」开始添加</span>
+      <div class="table-head">
+        <div>
+          <span class="table-kicker">{{ selectedCity ? selectedCity.name : '全部城市' }}</span>
+          <strong>城市账号清单</strong>
+        </div>
+        <span class="table-count">共 {{ filteredAccounts.length }} 个账号</span>
+      </div>
+      <div class="table-scroll">
+        <table class="city-account-table">
+          <thead>
+            <tr>
+              <th>城市</th>
+              <th>平台</th>
+              <th>账号类型</th>
+              <th>账号名称</th>
+              <th>主页链接</th>
+              <th>账号状态</th>
+              <th>二维码</th>
+              <th>状态说明 / 备注</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="row in filteredAccounts" :key="row.id" class="data-row">
+              <td>
+                <div class="city-cell">
+                  <div class="city-avatar small" :style="{background: colorFromName(row.city_name)}">{{ firstChar(row.city_name) }}</div>
+                  <div class="city-info compact">
+                    <strong>{{ row.city_name }}</strong>
+                    <span>{{ statusLabel(row.city_status) }}</span>
+                  </div>
+                </div>
+              </td>
+              <td>
+                <span class="platform-chip" :class="'p-'+customPlatformColor(row.platform)">
+                  <IconFont :platform="row.platform" />
+                  {{ row.platform_label || platformLabel(row.platform) }}
+                </span>
+              </td>
+              <td><span class="type-chip">{{ row.type_note || row.account_type || '未分类' }}</span></td>
+              <td>
+                <div class="account-name-cell">
+                  <strong>{{ row.name }}</strong>
+                  <span v-if="row.platform_account && row.platform_account !== row.url">{{ row.platform_account }}</span>
+                </div>
+              </td>
+              <td>
+                <a v-if="row.url" :href="row.url" target="_blank" rel="noopener" class="url-link">{{ row.url }}</a>
+                <span v-else class="url-link placeholder">未填写</span>
+              </td>
+              <td>
+                <span class="status-chip" :class="accountStatusClass(row.status)">
+                  <i class="status-dot" :class="accountStatusClass(row.status)"></i>
+                  {{ accountStatusLabel(row.status) }}
+                </span>
+              </td>
+              <td>
+                <button
+                  v-if="hasQrcodeEntry(row)"
+                  class="qrcode-icon-btn"
+                  :class="{ generated: !qrcodeSrc(row.qrcode_url) }"
+                  :title="qrcodeSrc(row.qrcode_url) ? '查看上传二维码' : '根据主页链接生成二维码'"
+                  @click="openQrcode(row)"
+                >
+                  <el-icon><Picture /></el-icon>
+                </button>
+                <span v-else class="qrcode-icon-empty" title="未上传二维码，且未填写主页链接">
+                  <el-icon><Picture /></el-icon>
+                </span>
+              </td>
+              <td><span class="remark-cell">{{ row.remark || '-' }}</span></td>
+              <td class="action-cell">
+                <button class="mini-btn" @click="editAccount(row._city, row)"><el-icon><EditPen /></el-icon>编辑</button>
+                <button class="mini-btn danger" @click="removeAccount(row._city, row)"><el-icon><Delete /></el-icon>删除</button>
+              </td>
+            </tr>
+            <tr v-if="!filteredAccounts.length" class="empty-row">
+              <td colspan="9">
+                <div class="empty-inline">
+                  <el-icon><LocationFilled /></el-icon>
+                  <strong>{{ selectedCity ? '该城市暂无账号' : '暂无城市账号数据' }}</strong>
+                  <span>{{ selectedCity ? '可以先为该城市新增一个平台账号' : '点击右上角「新增城市」开始添加' }}</span>
+                  <button v-if="selectedCity" class="btn-primary" @click="addAccount(selectedCity)">
+                    <el-icon><Plus /></el-icon>为该城市新增账号
+                  </button>
+                </div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
       </div>
     </div>
     </template>
     </ConfigurablePageRenderer>
+
+    <div class="floating-actions">
+      <div class="floating-action-row">
+        <button v-if="selectedCity" class="float-secondary" @click="addAccount(selectedCity)">
+          <el-icon><Plus /></el-icon>新增账号
+        </button>
+        <button class="float-main" @click="openCityDialog">
+          <el-icon><Plus /></el-icon>新增城市
+        </button>
+      </div>
+    </div>
 
     <!-- 新增/编辑 城市 -->
     <div class="dialog-overlay" v-if="showCityDialog" @click.self="closeCityDialog">
@@ -167,7 +231,7 @@
       <div class="dialog-card wide">
         <div class="dialog-head">
           <div>
-            <h3>{{ editingAccount ? '编辑账号' : '为「'+ (accountCity?.name || '') +'」新增账号' }}</h3>
+            <h3>{{ editingAccount ? '编辑账号' : '为「'+ (accountCity?.name || selectedCity?.name || '') +'」新增账号' }}</h3>
             <p>为该城市绑定一个具体的平台账号</p>
           </div>
           <button class="icon-close" @click="closeAccountDialog"><el-icon><Close /></el-icon></button>
@@ -197,7 +261,7 @@
             <label>账号二维码（可选）</label>
             <div class="qrcode-uploader">
               <div v-if="accountForm.qrcode_url" class="qrcode-preview">
-                <img :src="accountForm.qrcode_url" alt="二维码" />
+                <img :src="qrcodeSrc(accountForm.qrcode_url)" alt="二维码" />
                 <div class="qrcode-actions">
                   <button class="mini-btn" @click="removeQrcode"><el-icon><Close /></el-icon> 移除</button>
                 </div>
@@ -223,6 +287,15 @@
               <label>账号类型/说明（可选）</label>
               <input v-model="accountForm.type_note" class="text-input" placeholder="如：剧情号/美女号/官方号" />
             </div>
+          </div>
+          <div class="form-field">
+            <label>{{ accountForm.status === 'active' ? '运营说明' : '状态说明 / 原因' }}<em v-if="accountForm.status !== 'active'">*</em></label>
+            <textarea
+              v-model="accountForm.remark"
+              class="textarea-input"
+              rows="3"
+              :placeholder="accountForm.status === 'paused' ? '请填写暂停原因，如：账号作废、权限异常、平台限制等' : (accountForm.status === 'pending' ? '请填写待完善事项，如：缺少主页链接、二维码未上传等' : '可选，补充账号运营说明')"
+            ></textarea>
           </div>
         </div>
         <div class="dialog-foot">
@@ -277,7 +350,19 @@
         </div>
         <div class="dialog-body">
           <div class="qrcode-dialog-img">
-            <img :src="qrcodeAccount?.qrcode_url" alt="账号二维码" />
+            <img
+              v-if="qrcodeSrc(qrcodeAccount?.qrcode_url) && !qrcodeImageFailed"
+              :src="qrcodeSrc(qrcodeAccount?.qrcode_url)"
+              alt="账号二维码"
+              @error="qrcodeImageFailed = true"
+            />
+            <ReQrcode
+              v-else-if="qrcodeFallbackValue"
+              :value="qrcodeFallbackValue"
+              :size="240"
+              class="qrcode-canvas"
+            />
+            <div v-else class="qrcode-missing">二维码图片已丢失，请重新上传</div>
           </div>
           <div class="qrcode-dialog-info">
             <div class="qrcode-info-row">
@@ -305,19 +390,21 @@ import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   Plus, EditPen, Close, Delete, LocationFilled, UserFilled, DataAnalysis,
-  Warning, Phone, Collection, Picture, Upload
+  Warning, Picture, Upload
 } from '@element-plus/icons-vue'
 import IconFont from '@/components/IconFont.vue'
+import ReQrcode from '@/components/base/ReQrcode.vue'
 import { createAccount, updateAccount, deleteAccount, createCity, getCities, updateCity, deleteCity, uploadQrcode } from '@/api'
 import ConfigurablePageRenderer from '@/layout-builder/ConfigurablePageRenderer.vue'
 import { layoutModuleCatalog } from '@/layout-builder/moduleCatalog'
 import { useLayoutBindings } from '@/layout-builder/layoutBindings'
 import { usePageSearch } from '@/composables/usePageSearch'
+import { resolveMediaUrl } from '@/utils/mediaUrl'
 
 const cityAccountsLayoutModules = layoutModuleCatalog.cityAccounts
 const { bindings: layoutBindings } = useLayoutBindings('cityAccounts')
 const list = ref([])
-const filter = reactive({ status: '', platform: '' })
+const filter = reactive({ status: '', platform: '', cityId: '' })
 const { matchesPageSearch } = usePageSearch()
 
 // 预定义平台
@@ -332,7 +419,9 @@ const platformOptions = computed(() => [...builtInPlatforms, ...customPlatforms.
 const allPlatforms = computed(() => [...platformOptions.value, { key: 'other', label: '其它（自行填写）', color: '#6366f1' }])
 const palette = ['#6366f1','#8b5cf6','#ec4899','#f97316','#10b981','#0ea5e9','#f59e0b','#ef4444','#14b8a6','#84cc16']
 
-const statusLabel = (s) => ({ active: '活跃运营', pending: '待完善', paused: '已暂停' }[s] || s)
+const statusLabel = (s) => ({ active: '活跃运营', pending: '待完善', paused: '已暂停' }[s] || '待完善')
+const accountStatusLabel = (s) => ({ active: '正常运营', pending: '待完善', paused: '暂停运营' }[s] || '待完善')
+const accountStatusClass = (s) => `account-${['active', 'pending', 'paused'].includes(s) ? s : 'pending'}`
 
 // 统计
 const cities = computed(() => list.value)
@@ -343,48 +432,56 @@ const platformCount = computed(() => {
   return set.size
 })
 const needFix = computed(() => list.value.filter(c => c.status === 'pending' || !c.accounts?.length).length)
-
-const filteredCities = computed(() => list.value
-  .filter(city => filter.status ? city.status === filter.status : true)
-  .map(city => {
-    const cityMatched = matchesPageSearch(city.name, city.contact, city.phone, city.remark, statusLabel(city.status))
-    let accounts = city.accounts || []
-    if (filter.platform) accounts = accounts.filter(account => account.platform === filter.platform)
-    if (!cityMatched) {
-      accounts = accounts.filter(account => matchesPageSearch(
-        account.name, account.platform, account.platform_label, account.url, account.type_note, account.remark
-      ))
-    }
-    return {
-      ...city,
-      accounts,
-      _searchMatched: cityMatched || accounts.length > 0
-    }
-  })
-  .filter(city => city._searchMatched && (!filter.platform || city.accounts.length))
-)
+const selectedCity = computed(() => list.value.find(city => city.id === filter.cityId) || null)
+const cityAccountRows = computed(() => list.value.flatMap(city => (city.accounts || []).map(account => ({
+  ...account,
+  url: account.url || account.platform_account || '',
+  type_note: account.type_note || account.account_type || '',
+  city_id: city.id,
+  city_name: city.name,
+  city_status: city.status,
+  _city: city
+}))))
+const filteredAccounts = computed(() => cityAccountRows.value.filter(row => {
+  if (filter.cityId && row.city_id !== filter.cityId) return false
+  if (filter.status && row.status !== filter.status) return false
+  if (filter.platform && row.platform !== filter.platform) return false
+  return matchesPageSearch(
+    row.city_name,
+    statusLabel(row.city_status),
+    row.name,
+    row.platform,
+    row.platform_label,
+    row.url,
+    row.type_note,
+    row.remark
+  )
+}))
 
 const normalizeStatus = (value) => ({ inactive: 'paused', all: '' }[value] || value || '')
 const applyLayoutBindings = (bindings = {}) => {
   if ('status' in bindings) filter.status = normalizeStatus(bindings.status)
   if ('platform' in bindings) filter.platform = bindings.platform === '全部' ? '' : (bindings.platform || '')
+  if ('cityId' in bindings) filter.cityId = bindings.cityId || ''
 }
 
 // 工具
+const selectCity = (cityId) => {
+  filter.cityId = cityId
+}
 const colorFromName = (name) => {
   const n = (name || '').charCodeAt(0) || 1
   return palette[n % palette.length]
 }
-const iconForPlatform = (p) => ({ kuaihshou: VideoCamera, kuaishou: VideoCamera, weixin: ChatDotRound, douyin: MagicStick, xiaohongshu: Collection }[p] || UserFilled)
+const firstChar = (value) => (value || '?').slice(0, 1)
+const qrcodeSrc = (value) => resolveMediaUrl(value)
+const hasQrcodeEntry = (row) => Boolean(qrcodeSrc(row?.qrcode_url) || row?.url || row?.platform_account)
 const customPlatformColor = (p) => {
   const found = platformOptions.value.find(x => x.key === p)
   if (found) return p
   return 'custom'
 }
-const defaultPlatformLabel = computed(() => {
-  const found = platformOptions.value.find(x => x.key === accountForm.platform)
-  return found ? found.label : ''
-})
+const platformLabel = (key) => platformOptions.value.find(item => item.key === key)?.label || key || '-'
 
 // 模拟：初始两个城市 + 每城快手2 + 视频号2
 const bootstrap = () => {
@@ -418,8 +515,10 @@ const loadData = async () => {
     } else {
       list.value = bootstrap()
     }
+    if (filter.cityId && !list.value.some(city => city.id === filter.cityId)) filter.cityId = ''
   } catch {
     list.value = bootstrap()
+    if (filter.cityId && !list.value.some(city => city.id === filter.cityId)) filter.cityId = ''
   }
 }
 
@@ -480,6 +579,7 @@ const removeCity = (city) => {
     .then(async () => {
       try { await deleteCity(city.id) } catch {}
       list.value = list.value.filter(c => c.id !== city.id)
+      if (filter.cityId === city.id) filter.cityId = ''
       ElMessage.success('已删除')
     }).catch(() => {})
 }
@@ -488,20 +588,34 @@ const removeCity = (city) => {
 const showAccountDialog = ref(false)
 const accountCity = ref(null)
 const editingAccount = ref(null)
-const accountForm = reactive({ id: '', platform: 'kuaishou', platform_label: '', name: '', url: '', status: 'active', type_note: '', qrcode_url: '' })
+const accountForm = reactive({ id: '', platform: 'kuaishou', platform_label: '', name: '', url: '', status: 'active', type_note: '', qrcode_url: '', remark: '' })
 
-const emptyAccountForm = () => ({ id: '', platform: 'kuaishou', platform_label: '', name: '', url: '', status: 'active', type_note: '', qrcode_url: '' })
+const emptyAccountForm = () => ({ id: '', platform: 'kuaishou', platform_label: '', name: '', url: '', status: 'active', type_note: '', qrcode_url: '', remark: '' })
+const assignAccountForm = (data = {}) => {
+  Object.keys(accountForm).forEach(key => { delete accountForm[key] })
+  Object.assign(accountForm, emptyAccountForm(), {
+    id: data.id || '',
+    platform: data.platform || 'kuaishou',
+    platform_label: data.platform_label || '',
+    name: data.name || '',
+    url: data.url || data.platform_account || '',
+    status: data.status || 'active',
+    type_note: data.type_note || data.account_type || '',
+    qrcode_url: data.qrcode_url || '',
+    remark: data.remark || ''
+  })
+}
 
 const addAccount = (city) => {
   accountCity.value = city
   editingAccount.value = null
-  Object.assign(accountForm, emptyAccountForm())
+  assignAccountForm()
   showAccountDialog.value = true
 }
 const editAccount = (city, acc) => {
   accountCity.value = city
   editingAccount.value = acc
-  Object.assign(accountForm, emptyAccountForm(), acc)
+  assignAccountForm(acc)
   // 若无平台显示名，自动填充
   if (!accountForm.platform_label) {
     const found = platformOptions.value.find(p => p.key === acc.platform)
@@ -519,31 +633,35 @@ const onPlatformChange = () => {
 const saveAccount = async () => {
   if (!accountCity.value) return
   if (!accountForm.name || !accountForm.platform) return ElMessage.warning('请完整填写账号信息')
+  if (accountForm.status !== 'active' && !String(accountForm.remark || '').trim()) {
+    return ElMessage.warning(accountForm.status === 'paused' ? '请填写暂停原因' : '请填写待完善原因')
+  }
   // 若平台显示名为空，自动填充
   if (!accountForm.platform_label) {
     const found = platformOptions.value.find(p => p.key === accountForm.platform)
     if (found) accountForm.platform_label = found.label
   }
+  const payload = {
+    id: accountForm.id,
+    platform: accountForm.platform,
+    platform_label: accountForm.platform_label,
+    name: accountForm.name,
+    url: accountForm.url,
+    status: accountForm.status,
+    type_note: accountForm.type_note,
+    qrcode_url: accountForm.qrcode_url,
+    platform_account: accountForm.url || '',
+    account_type: accountForm.type_note || '',
+    remark: accountForm.remark || '',
+    type: 'city',
+    city_id: accountCity.value.id
+  }
   try {
     if (editingAccount.value) {
-      const payload = {
-        ...accountForm,
-        platform_account: accountForm.url || '',
-        account_type: accountForm.type_note || '',
-        type: 'city',
-        city_id: accountCity.value.id
-      }
       await updateAccount(editingAccount.value.id, payload)
       await loadData()
       ElMessage.success('账号已更新')
     } else {
-      const payload = {
-        ...accountForm,
-        platform_account: accountForm.url || '',
-        account_type: accountForm.type_note || '',
-        type: 'city',
-        city_id: accountCity.value.id
-      }
       await createAccount(payload)
       await loadData()
       ElMessage.success('账号已添加')
@@ -587,13 +705,17 @@ const saveCustomPlatform = () => {
 // === 二维码 ===
 const showQrcodeDialog = ref(false)
 const qrcodeAccount = ref(null)
+const qrcodeImageFailed = ref(false)
+const qrcodeFallbackValue = computed(() => qrcodeAccount.value?.url || qrcodeAccount.value?.platform_account || '')
 const openQrcode = (acc) => {
   qrcodeAccount.value = acc
+  qrcodeImageFailed.value = false
   showQrcodeDialog.value = true
 }
 const closeQrcodeDialog = () => {
   showQrcodeDialog.value = false
   qrcodeAccount.value = null
+  qrcodeImageFailed.value = false
 }
 
 const handleQrcodeUpload = async (e) => {
@@ -650,12 +772,17 @@ watch(layoutBindings, (value) => applyLayoutBindings(value), { deep: true, immed
 .hero-left { display: flex; flex-direction: column; gap: 6px; }
 .title { font-size: 26px; font-weight: 700; color: #0f172a; margin: 0; }
 .subtitle { font-size: 13px; color: #6b7280; margin: 0; }
-.hero-right { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.hero-right { display: flex; align-items: center; justify-content: flex-end; gap: 14px; flex-wrap: wrap; min-width: 0; flex: 1; }
 
+.city-filter-bar { display: flex; gap: 6px; width: 100%; overflow-x: auto; padding: 4px; background: #f8fafc; border-radius: 10px; scrollbar-width: thin; }
+.city-filter-bar::-webkit-scrollbar { height: 6px; }
+.city-filter-bar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 999px; }
 .chip-group { display: flex; gap: 6px; padding: 4px; background: #f8fafc; border-radius: 10px; }
-.chip { display: inline-flex; align-items: center; height: 32px; padding: 0 12px; border-radius: 8px; border: 0; background: transparent; color: #475569; font-size: 12.5px; font-weight: 500; cursor: pointer; transition: all 0.18s; font-family: inherit; }
+.chip-group.compact .chip { height: 30px; }
+.chip { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 12px; border-radius: 8px; border: 0; background: transparent; color: #475569; font-size: 12.5px; font-weight: 500; cursor: pointer; transition: all 0.18s; font-family: inherit; white-space: nowrap; }
 .chip:hover { color: #4338ca; }
 .chip.active { background: #fff; color: #4338ca; font-weight: 600; box-shadow: 0 2px 6px rgba(0,0,0,0.06); }
+.chip-count { display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 18px; padding: 0 6px; border-radius: 999px; background: #eef2ff; color: #4338ca; font-size: 11px; font-weight: 700; }
 
 .btn-primary { height: 40px; padding: 0 16px; border-radius: 10px; border: 0; cursor: pointer; font-size: 13.5px; font-weight: 600; color: #fff; display: inline-flex; align-items: center; gap: 6px; background: linear-gradient(135deg, #6366f1, #8b5cf6); box-shadow: 0 4px 14px rgba(99,102,241,0.3); transition: all 0.18s; font-family: inherit; }
 .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 6px 18px rgba(99,102,241,0.4); }
@@ -675,7 +802,9 @@ watch(layoutBindings, (value) => applyLayoutBindings(value), { deep: true, immed
 .sum-label { font-size: 11px; color: #6b7280; font-weight: 500; }
 .sum-value { font-size: 20px; font-weight: 700; color: #0f172a; }
 
-.platforms-inline { margin-left: auto; display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: #6b7280; flex-wrap: wrap; }
+.status-filter { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+.filter-label { color: #64748b; font-size: 12.5px; font-weight: 600; white-space: nowrap; }
+.platforms-inline { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: #6b7280; flex-wrap: wrap; }
 .p-chip { padding: 4px 10px; border-radius: 0; font-size: 12px; font-weight: 600; background: transparent; color: #334155; display: inline-flex; align-items: center; gap: 4px; }
 .p-chip.p-kuaishou { background: transparent; color: #c2410c; }
 .p-chip.p-weixin { background: transparent; color: #047857; }
@@ -684,66 +813,89 @@ watch(layoutBindings, (value) => applyLayoutBindings(value), { deep: true, immed
 .p-chip.custom { cursor: pointer; background: #eef2ff; color: #4338ca; display: inline-flex; align-items: center; gap: 4px; transition: all 0.15s; }
 .p-chip.custom:hover { background: #6366f1; color: #fff; }
 
-/* city grid */
-.city-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); gap: 16px; }
+/* table */
+.table-panel { background: #fff; border: 1px solid #eceff5; border-radius: 16px; overflow: hidden; }
+.table-filter-row { padding: 14px 18px 10px; border-bottom: 1px solid #eef2f7; background: #fff; }
+.table-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 18px; border-bottom: 1px solid #eef2f7; background: #fff; }
+.table-head > div { display: flex; flex-direction: column; gap: 4px; }
+.table-head strong { color: #0f172a; font-size: 15px; }
+.table-kicker { color: #6366f1; font-size: 12px; font-weight: 700; }
+.table-count { color: #64748b; font-size: 12px; white-space: nowrap; }
+.table-scroll { overflow-x: auto; }
+.city-account-table { width: 100%; min-width: 1180px; border-collapse: separate; border-spacing: 0; font-size: 13px; }
+.city-account-table th { text-align: left; padding: 14px; font-size: 11px; color: #64748b; font-weight: 600; letter-spacing: 0.05em; background: linear-gradient(180deg, #fafbff, #f5f6fa); border-bottom: 1px solid #e2e8f0; white-space: nowrap; }
+.city-account-table td { padding: 14px; border-bottom: 1px solid #f1f5f9; color: #1e293b; vertical-align: middle; }
+.data-row:hover { background: #fafbff; }
+.city-cell { display: flex; align-items: center; gap: 10px; min-width: 150px; }
+.city-avatar.small { width: 34px; height: 34px; border-radius: 10px; font-size: 13px; box-shadow: none; }
+.city-info.compact { display: flex; flex-direction: column; gap: 2px; }
+.city-info.compact strong { color: #0f172a; font-size: 13.5px; white-space: nowrap; }
+.city-info.compact span { color: #94a3b8; font-size: 11px; white-space: nowrap; }
+.platform-chip, .type-chip, .status-chip { display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border-radius: 8px; font-size: 12px; font-weight: 600; white-space: nowrap; }
+.platform-chip { background: transparent; color: #334155; }
+.platform-chip.p-kuaishou { color: #c2410c; }
+.platform-chip.p-weixin { color: #047857; }
+.platform-chip.p-douyin { color: #be185d; }
+.platform-chip.p-xiaohongshu { background: #fef2f2; color: #b91c1c; }
+.platform-chip.p-custom { background: #eef2ff; color: #4338ca; }
+.type-chip { background: #eef2ff; color: #4338ca; }
+.status-chip.account-active { background: #ecfdf5; color: #047857; }
+.status-chip.account-pending { background: #f8fafc; color: #475569; }
+.status-chip.account-paused { background: #fef2f2; color: #b91c1c; }
+.account-name-cell { display: flex; flex-direction: column; gap: 3px; min-width: 180px; }
+.account-name-cell strong { color: #0f172a; font-size: 13.5px; font-weight: 700; }
+.account-name-cell span { color: #94a3b8; font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 240px; }
+.url-link { display: inline-block; max-width: 240px; color: #6366f1; font-size: 12px; text-decoration: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.url-link:hover { text-decoration: underline; }
+.url-link.placeholder, .muted-text { color: #94a3b8; font-size: 12px; }
+.remark-cell { display: inline-block; max-width: 260px; color: #64748b; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.action-cell { white-space: nowrap; }
+.mini-btn.icon-only { width: 30px; padding: 0; }
+.qrcode-icon-btn,
+.qrcode-icon-empty {
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+}
+.qrcode-icon-btn {
+  border: 1px solid #dbe4f0;
+  background: #fff;
+  color: #475569;
+  cursor: pointer;
+  transition: all 0.16s;
+}
+.qrcode-icon-btn:hover {
+  border-color: #6366f1;
+  background: #eef2ff;
+  color: #4f46e5;
+}
+.qrcode-icon-btn.generated {
+  border-color: #c7d2fe;
+  background: #f5f3ff;
+  color: #6366f1;
+}
+.qrcode-icon-empty {
+  border: 1px dashed #dbe4f0;
+  background: #f8fafc;
+  color: #cbd5e1;
+}
+.empty-row td { padding: 42px 20px !important; }
+.empty-inline { display: flex; flex-direction: column; align-items: center; gap: 8px; color: #94a3b8; font-size: 13px; }
+.empty-inline strong { color: #0f172a; font-size: 14px; }
 
-.city-card { background: #fff; border: 1px solid #eceff5; border-radius: 16px; padding: 20px; transition: all 0.2s; display: flex; flex-direction: column; }
-.city-card:hover { border-color: #c7d2fe; box-shadow: 0 12px 28px rgba(99,102,241,0.08); transform: translateY(-2px); }
-
-.city-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; margin-bottom: 14px; }
-.city-hero { display: flex; align-items: center; gap: 12px; min-width: 0; }
 .city-avatar { width: 44px; height: 44px; border-radius: 12px; color: #fff; display: grid; place-items: center; font-size: 16px; font-weight: 700; flex-shrink: 0; box-shadow: 0 4px 14px rgba(0,0,0,0.08); }
-.city-info { min-width: 0; }
-.city-name { font-size: 17px; font-weight: 700; color: #0f172a; margin: 0; }
-.city-meta { display: flex; flex-direction: column; gap: 4px; margin-top: 4px; font-size: 12px; color: #6b7280; }
-.meta-item { display: inline-flex; align-items: center; gap: 4px; }
-.meta-item.muted { color: #94a3b8; }
-
-.city-status { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
-.status-pill { font-size: 11px; padding: 4px 10px; border-radius: 99px; font-weight: 600; }
-.status-pill.st-active { background: #ecfdf5; color: #047857; }
-.status-pill.st-pending { background: #fef3c7; color: #b45309; }
-.status-pill.st-paused { background: #e2e8f0; color: #475569; }
-.actions { display: flex; gap: 6px; }
-.icon-btn { width: 28px; height: 28px; border-radius: 8px; border: 1px solid #e5e7eb; background: #fff; color: #6b7280; cursor: pointer; display: grid; place-items: center; transition: all 0.15s; font-size: 13px; }
-.icon-btn:hover { border-color: #6366f1; color: #6366f1; background: #f5f3ff; }
-.icon-btn:nth-child(2):hover { border-color: #ef4444; color: #ef4444; background: #fef2f2; }
-
-/* accounts */
-.accounts { margin-top: 4px; display: flex; flex-direction: column; gap: 8px; }
-.account-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 14px; border-radius: 12px; background: #fafbff; border: 1px solid #eceff5; transition: all 0.15s; }
-.account-row:hover { background: #f5f3ff; border-color: #e0e7ff; }
-.account-main { display: flex; align-items: center; gap: 12px; min-width: 0; flex: 1; }
-.account-platform { display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; border-radius: 0; font-size: 12px; font-weight: 600; background: transparent; color: #4338ca; flex-shrink: 0; }
-.account-platform.p-kuaishou { background: transparent; color: #c2410c; }
-.account-platform.p-weixin { background: transparent; color: #047857; }
-.account-platform.p-douyin { background: transparent; color: #be185d; }
-.account-platform.p-xiaohongshu { background: #fef2f2; color: #b91c1c; }
-.account-platform.p-custom { background: #eef2ff; color: #4338ca; }
-.account-info { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.account-name { font-size: 13.5px; font-weight: 600; color: #111827; }
-.account-link { font-size: 11.5px; color: #6366f1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.account-link.placeholder { color: #94a3b8; font-style: italic; }
-.account-right { display: flex; align-items: center; gap: 6px; }
-.status-dot { width: 8px; height: 8px; border-radius: 999px; background: #10b981; box-shadow: 0 0 0 3px rgba(16,185,129,0.18); }
-.status-dot.off { background: #94a3b8; box-shadow: 0 0 0 3px rgba(148,163,184,0.18); }
+.status-dot { width: 8px; height: 8px; border-radius: 999px; flex: 0 0 auto; }
+.status-dot.account-active { background: #10b981; box-shadow: 0 0 0 4px rgba(16,185,129,0.18); }
+.status-dot.account-pending { background: #94a3b8; box-shadow: 0 0 0 4px rgba(148,163,184,0.2); }
+.status-dot.account-paused { background: #ef4444; box-shadow: 0 0 0 4px rgba(239,68,68,0.18); }
 
 .mini-btn { height: 28px; padding: 0 10px; border-radius: 8px; border: 1px solid #e5e7eb; background: #fff; color: #374151; font-size: 12px; font-weight: 500; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; transition: all 0.15s; font-family: inherit; }
 .mini-btn:hover { border-color: #6366f1; color: #6366f1; background: #f5f3ff; }
 .mini-btn.danger:hover { border-color: #ef4444; color: #ef4444; background: #fef2f2; }
-
-.empty-account { padding: 14px; text-align: center; border: 1px dashed #e5e7eb; border-radius: 12px; font-size: 12.5px; color: #94a3b8; display: flex; flex-direction: column; gap: 6px; }
-.link-btn { border: 0; background: transparent; color: #6366f1; font-size: 12.5px; font-weight: 600; cursor: pointer; font-family: inherit; }
-.link-btn:hover { color: #4338ca; }
-
-.add-account-row { padding: 10px 14px; border-radius: 10px; border: 1.5px dashed #c7d2fe; background: #faf5ff; color: #6366f1; font-size: 12.5px; font-weight: 600; cursor: pointer; transition: all 0.18s; display: inline-flex; align-items: center; justify-content: center; gap: 6px; font-family: inherit; margin-top: 6px; }
-.add-account-row:hover { background: #6366f1; color: #fff; border-color: #6366f1; }
-
-/* empty state */
-.empty-state { padding: 50px 20px; display: flex; flex-direction: column; align-items: center; gap: 12px; background: #fff; border: 1px dashed #e5e7eb; border-radius: 16px; }
-.empty-ic { width: 64px; height: 64px; border-radius: 16px; background: #eef2ff; color: #6366f1; display: grid; place-items: center; font-size: 28px; }
-.empty-txt strong { font-size: 14.5px; color: #0f172a; font-weight: 600; display: block; margin-bottom: 4px; }
-.empty-txt span { font-size: 12.5px; color: #94a3b8; }
 
 /* dialog */
 .dialog-overlay { position: fixed; inset: 0; background: rgba(15,23,42,0.5); backdrop-filter: blur(4px); display: grid; place-items: center; z-index: 2000; animation: fadeIn 0.2s; }
@@ -764,9 +916,11 @@ watch(layoutBindings, (value) => applyLayoutBindings(value), { deep: true, immed
 .form-field label em { color: #ef4444; font-style: normal; font-size: 13px; }
 .form-row.two { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
 
-.text-input, .select-input { height: 42px; padding: 0 14px; border-radius: 10px; border: 1.5px solid #e5e7eb; background: #fafbfc; color: #0f172a; font-size: 13.5px; outline: 0; transition: all 0.15s; font-family: inherit; }
+.text-input, .select-input, .textarea-input { padding: 0 14px; border-radius: 10px; border: 1.5px solid #e5e7eb; background: #fafbfc; color: #0f172a; font-size: 13.5px; outline: 0; transition: all 0.15s; font-family: inherit; }
+.text-input, .select-input { height: 42px; }
 .select-input { cursor: pointer; }
-.text-input:focus, .select-input:focus { background: #fff; border-color: #6366f1; box-shadow: 0 0 0 4px rgba(99,102,241,0.12); }
+.textarea-input { min-height: 80px; padding-top: 10px; padding-bottom: 10px; resize: vertical; line-height: 1.5; }
+.text-input:focus, .select-input:focus, .textarea-input:focus { background: #fff; border-color: #6366f1; box-shadow: 0 0 0 4px rgba(99,102,241,0.12); }
 
 .color-row { display: flex; flex-wrap: wrap; gap: 10px; padding: 6px; background: #f8fafc; border-radius: 10px; }
 .color-dot { width: 28px; height: 28px; border-radius: 999px; cursor: pointer; transition: all 0.15s; border: 2px solid transparent; }
@@ -836,6 +990,25 @@ watch(layoutBindings, (value) => applyLayoutBindings(value), { deep: true, immed
   border: 1px solid #e5e7eb;
   box-shadow: 0 4px 16px rgba(0,0,0,0.08);
 }
+.qrcode-canvas {
+  border-radius: 12px;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.08);
+}
+.qrcode-missing {
+  width: 240px;
+  height: 240px;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  border-radius: 12px;
+  border: 1px dashed #cbd5e1;
+  background: #f8fafc;
+  color: #64748b;
+  font-size: 13px;
+  text-align: center;
+}
 .qrcode-dialog-info {
   display: flex;
   flex-direction: column;
@@ -858,8 +1031,9 @@ watch(layoutBindings, (value) => applyLayoutBindings(value), { deep: true, immed
 
 @media (max-width: 900px) {
   .hero { flex-direction: column; align-items: flex-start; gap: 14px; }
+  .hero-right { width: 100%; justify-content: flex-start; }
+  .status-filter { margin-left: 0; width: 100%; align-items: flex-start; flex-direction: column; }
   .platforms-inline { margin-left: 0; width: 100%; }
   .form-row.two { grid-template-columns: 1fr; }
-  .city-grid { grid-template-columns: 1fr; }
 }
 </style>
