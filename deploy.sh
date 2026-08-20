@@ -2,7 +2,7 @@
 # 一键部署脚本（适配1Panel环境）
 # 用法: ./deploy.sh [frontend|backend|all]
 
-SERVER="root@110.42.61.245"
+SERVER="root@<你的ip>"
 PROJECT_DIR="/Users/zhanglin/Documents/xitongkaifa"
 FRONTEND_DIR="$PROJECT_DIR/frontend"
 BACKEND_DIR="$PROJECT_DIR/backend"
